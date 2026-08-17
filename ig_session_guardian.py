@@ -16,7 +16,8 @@ from playwright.sync_api import sync_playwright
 
 APP_DIR = Path(__file__).resolve().parent
 ENV_FILE = APP_DIR / ".env"
-PROFILE_DIR = Path(os.getenv("IG_BROWSER_PROFILE", "/home/tgsorter/ig-browser-profile"))
+PROFILE_DIR = Path(os.getenv(
+    "IG_BROWSER_PROFILE", Path.home() / ".cache" / "content-kb" / "ig-browser-profile"))
 
 
 def _replace_env(updates: dict[str, str]) -> None:

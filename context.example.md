@@ -1,25 +1,27 @@
-# Контекст власника бази
+# Owner profile
 
-Скопіюй у `context.<ім'я>.md` і перепиши під себе. Файл читається при кожному
-аналізі: правиш — оцінка змінюється одразу, без рестарту бота.
+Copy this to `context.md` (or `context.<name>.md` for an extra owner) and rewrite it as
+yourself. It is read on every analysis: edit it and the scoring changes on the next
+message, with no restart.
 
-Чим конкретніше тут написано, тим менше сміття потрапить у 🔥. Порожній або
-відсутній файл — не катастрофа: бот оцінюватиме без контексту й ставитиме
-здебільшого 📎 Довідково.
+Write it in whatever language you think in — the model reads it as-is.
 
-## Хто я і що продаю
+The more concrete this is, the less noise ends up rated 🔥. An empty or missing file is
+not fatal: the bot then scores without context and marks most things 📎 Reference.
 
-Одним абзацом: чим займаюсь, кому продаю, за скільки, чим саме заробляю зараз.
+## Who I am and what I sell
 
-## Зараз у роботі
+One paragraph: what you do, who you sell to, at what price, what actually pays you today.
 
-Живі проєкти, деали, дедлайни. Цей рядок має жити — змінився фокус, онови тут.
+## Currently in flight
 
-## Цілі
+Live projects, deals, deadlines. Keep this section alive — when the focus moves, update it.
 
-Куди йду найближчі місяці. Гроші, канали, продукт — конкретно.
+## Goals
 
-## Патерни
+Where you are heading over the next few months. Money, channels, product — be specific.
 
-- Що для мене 🔥, а що красива відволікалка.
-- Питання, яким сам перевіряю цінність матеріалу.
+## Patterns
+
+- What counts as 🔥 for you, and what is just an attractive distraction.
+- The question you personally use to test whether material is worth your time.

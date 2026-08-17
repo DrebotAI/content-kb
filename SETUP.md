@@ -46,7 +46,7 @@ yt-dlp уже в requirements.txt (через pip), не потрібен окр
 - `IG_COOKIES_FILE` — файл кук для сторіз (опційно, для анонімних постів це не потрібно)
 - `IG_USER_AGENT` — User-Agent для запитів до Instagram (опційно)
 - `IG_PROXY_URL` — проксі для IG запитів (опційно)
-- `IG_BROWSER_PROFILE` — тека профілю браузера ig_session_guardian (за замовчуванням `/home/tgsorter/ig-browser-profile`)
+- `IG_BROWSER_PROFILE` — тека профілю браузера ig_session_guardian (за замовчуванням `~/.cache/content-kb/ig-browser-profile`)
 - `GPROXY_API_KEY` — ключ для автоматичної генерації проксі (опційно)
 - `GPROXY_API_URL` — URL API для проксі (за замовчуванням `https://gproxy.net/api/v1/proxy/generate/`)
 - `GPROXY_COUNTRY` — країна для проксі (за замовчуванням `"VN"`)

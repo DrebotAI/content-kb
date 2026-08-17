@@ -4,9 +4,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=tgsorter
-WorkingDirectory=/home/tgsorter/app
-ExecStart=/home/tgsorter/app/venv/bin/python bot.py
+User=content-kb
+WorkingDirectory=/opt/content-kb
+ExecStart=/opt/content-kb/venv/bin/python bot.py
 Restart=on-failure
 RestartSec=5
 

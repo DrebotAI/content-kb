@@ -90,64 +90,105 @@ Each tenant has:
 
 The same bot serves all tenants from one process. Without `tenants.json`, it falls back to single-user mode via `.env` variables (`ALLOWED_USER_ID`, `NOTION_TOKEN`, `NOTION_DATABASE_ID`).
 
+## Before you start
+
+This is a self-hosted bot wired to accounts you own. Get these four things first —
+the Quick start assumes you have them.
+
+| What | Where | Cost |
+|------|-------|------|
+| Telegram bot token | [@BotFather](https://t.me/BotFather) → `/newbot` | free |
+| Your numeric Telegram id | start your new bot, send it `/id` — it answers anyone | free |
+| Deepgram API key | [deepgram.com](https://deepgram.com) — speech-to-text | paid, per minute of audio (free credit to start) |
+| Notion integration token + a page | see [Notion setup](#notion-setup) below | free |
+
+Plus the `codex` CLI — see [Requirements](#requirements).
+
+**This is not free to run.** Deepgram bills per minute of audio and the Codex CLI needs a
+paid account. Telegram's and Notion's APIs are free at this volume.
+
+**Language.** Analysis follows the language of the content, except the `hook` and
+`content_angle` fields, which are always Ukrainian — that is hardcoded in the prompt in
+`ai_engine.py`. Change those lines to target another language.
+
 ## Requirements
 
 - **Python** 3.12 (what production runs and tests are green on)
-- **External services** (environment variables; never commit values):
-  - `TELEGRAM_BOT_TOKEN` — from @BotFather
-  - `DEEPGRAM_API_KEY` — speech-to-text
-  - `IG_COOKIES_FILE` — Instagram session cookies (optional, for stories)
-  - `IG_PROXY_URL`, `IG_USER_AGENT` — optional proxy/headers for IG
-  - `NOTION_TOKEN` (or `env:NAME` refs in tenants.json) — per-user Notion integration tokens
-  - `CODEX_BIN`, `CODEX_MODEL`, `CODEX_REASONING`, `CODEX_TIMEOUT_SECONDS` — Codex CLI configuration (optional; defaults: `codex`, `gpt-5.6-sol`, `medium`, 300 s)
-  - `BATCH_DEBOUNCE_SECONDS` — message batching window (default 25)
-  - `TENANTS_FILE` — path to tenants.json (default: repo root)
-- **CLI binaries** (installed via `requirements.txt` or system package manager):
-  - `ffmpeg` — extracts frames from silent videos, muxes audio
-  - `codex` — AI analysis & image OCR (must be logged in: `codex login`)
-  - `yt-dlp` — downloads IG/TikTok media (installed via `requirements.txt`)
+- **CLI binaries** — these are *not* installed by `requirements.txt`, get them separately:
+  - `ffmpeg` — extracts frames from silent videos and the audio track
+  - `codex` — the [OpenAI Codex CLI](https://github.com/openai/codex). It does the content
+    analysis and the image OCR, called as a subprocess (`codex exec`). Install it per its own
+    README, then run `codex login` once. It is *not* what transcribes audio — that is Deepgram.
+    To swap in a different model or tool, `ai_engine.py` is the only file that shells out to it.
+- **Installed for you** by `requirements.txt`: `yt-dlp` (downloads IG/TikTok media),
+  `playwright` (only for the optional Instagram session guardian), the Telegram, Deepgram
+  and Notion SDKs.
+- **Environment variables** — full annotated list in [`.env.example`](.env.example). The ones
+  you must set: `TELEGRAM_BOT_TOKEN`, `DEEPGRAM_API_KEY`, and either a `tenants.json` or
+  `ALLOWED_USER_ID` + `NOTION_TOKEN` + `NOTION_DATABASE_ID`. Everything else has a working
+  default.
+
+## Notion setup
+
+Do this once per knowledge-base owner, in that person's own Notion workspace.
+
+1. Go to **Notion → Settings → Connections → Internal connections → Create a new connection**.
+   Only a Workspace Owner can create one. Capabilities needed: Read, Update, Insert content.
+2. Copy the **Internal Integration Token** (`ntn_…`) — this is your `NOTION_TOKEN`.
+3. Create an empty Notion page that will hold the database.
+4. On that page: **•••** → **Connections** → **Add connection** → pick your integration.
+   Skipping this step is the single most common failure — the token exists but sees nothing.
+5. Let `setup_notion.py` build the database and its schema (Quick start step 4).
 
 ## Quick start
 
-1. **Clone** the repo and enter the directory:
-   ```bash
-   git clone <repo> content-kb && cd content-kb
-   ```
+```bash
+git clone https://github.com/DrebotAI/content-kb.git && cd content-kb
+```
 
-2. **Install** Python dependencies:
+1. **Install** Python dependencies, plus `ffmpeg` and `codex` (see Requirements):
    ```bash
    pip install -r requirements.txt
+   codex login
    ```
 
-3. **Set up environment**:
+2. **Set up environment** — the file is commented, fill in the values you have:
    ```bash
-   cp .env.example .env   # then fill in the values
+   cp .env.example .env
    ```
 
-4. **Configure tenants**:
+3. **Write your profile.** `context.md` is a plain-text description of who you are and what
+   you care about; the AI reads it on every analysis to decide whether a piece of content is
+   valuable *to you*. Without it everything scores as "reference material".
    ```bash
-   cp tenants.example.json tenants.json
-   # Edit tenants.json: replace telegram_id, notion_token refs, database_id, context_file
+   cp context.example.md context.md   # then rewrite it as yourself
    ```
+   Edits take effect on the next message — no restart.
 
-5. **Create Notion database** (per tenant, in their Notion workspace):
+4. **Create the Notion database** (after [Notion setup](#notion-setup) above):
    ```bash
-   python setup_notion.py <notion-page-url-or-id> env:NOTION_TOKEN
+   python setup_notion.py <notion-page-url> env:NOTION_TOKEN
    ```
-   This creates the "Knowledge Base" database with the required schema and prints a block ready to paste into `tenants.json`.
+   Creates the "Knowledge Base" database with the required schema and prints a config block.
 
-6. **Verify setup**:
+5. **Configure owners** — single-user setups can skip this and use the `.env` variables instead:
    ```bash
-   python doctor.py                # all tenants
-   python doctor.py owner --probe  # test the owner's connection
+   cp tenants.example.json tenants.json   # paste in the block from step 4
    ```
 
-7. **Start the bot**:
+6. **Verify** before you trust it:
+   ```bash
+   python doctor.py                # check every owner's token, schema and IG session
+   python doctor.py owner --probe  # also create and archive a real test page
+   ```
+
+7. **Start the bot**, then send it an Instagram link:
    ```bash
    python bot.py
    ```
 
-Full setup guide (Ukrainian): [SETUP.md](SETUP.md)
+Full setup guide, with the Notion migration and Instagram session details (Ukrainian):
+[SETUP.md](SETUP.md)
 
 ## Repo layout
 
@@ -164,7 +205,7 @@ Full setup guide (Ukrainian): [SETUP.md](SETUP.md)
 | `doctor.py` | Pre-deployment health check; verifies Notion access, schema, Instagram cookies, token validity |
 | `backfill.py` | Schema migration & content re-scoring; adds missing columns; fills empty fields in existing pages |
 | `ig_session_guardian.py` | Persistent Playwright browser; maintains Instagram session cookies; handles login challenges & proxy rotation |
-| `test_*.py` | Unit tests (8 files, 104 tests) |
+| `test_*.py` | Unit tests (8 files, 105 tests) |
 
 ## Tests
 
@@ -172,6 +213,8 @@ Run tests with:
 ```bash
 pytest
 ```
+
+105 tests, no network access — they run offline.
 
 Test files: `test_bot.py`, `test_notion_store.py`, `test_ai_engine.py`, `test_instagram.py`, `test_tenants.py`, `test_transcribe.py`, `test_delivery.py`, `test_ig_session_guardian.py` (8 files).
 
