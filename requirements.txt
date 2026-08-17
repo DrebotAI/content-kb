@@ -1,0 +1,8 @@
+python-telegram-bot[job-queue]>=21.0,<22
+deepgram-sdk>=3.0,<4
+notion-client>=2.0,<3
+# TikTok webpage rehydration breaks with optional curl_cffi 0.15.0; keep it absent.
+yt-dlp[default] @ https://github.com/yt-dlp/yt-dlp/archive/3f78dc4797e1d3f53caad63778d180e28d1345d6.zip
+python-dotenv>=1.0
+httpx
+playwright>=1.47,<2

@@ -1,0 +1,14 @@
+[Unit]
+Description=Telegram Sorter/Transcriber bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=tgsorter
+WorkingDirectory=/home/tgsorter/app
+ExecStart=/home/tgsorter/app/venv/bin/python bot.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

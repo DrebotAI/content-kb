@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh Instagram persistent session every six hours
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+Persistent=true
+RandomizedDelaySec=5min
+Unit=ig-session-guardian.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,19 @@
+[Unit]
+Description=Instagram persistent session guardian for tg-sorter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tgsorter
+TimeoutStartSec=150
+WorkingDirectory=/home/tgsorter/app
+ExecStart=/home/tgsorter/app/venv/bin/python /home/tgsorter/app/ig_session_guardian.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/tgsorter/app /home/tgsorter/ig-browser-profile
+
+[Install]
+WantedBy=multi-user.target

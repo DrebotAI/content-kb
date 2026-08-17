@@ -1,0 +1,24 @@
+# secrets & per-owner config
+.env
+.ig_session.env
+cookies*
+tenants.json
+context.md
+context.*.md
+!context.example.md
+
+# runtime junk
+__pycache__/
+.pytest_cache/
+downloads/
+.backups/
+*.bak*
+venv/
+.venv/
+
+# debug artifacts
+ig-login-*.png
+
+# host-specific ops helpers (hardcoded deploy host)
+ig_lan_form.py
+set-instagram-login.py

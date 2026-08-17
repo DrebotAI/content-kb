@@ -1,0 +1,16 @@
+[
+  {
+    "name": "owner",
+    "telegram_id": 111111111,
+    "notion_token": "env:NOTION_TOKEN",
+    "notion_database_id": "0123456789abcdef0123456789abcdef",
+    "context_file": "context.md"
+  },
+  {
+    "name": "kent",
+    "telegram_id": 222222222,
+    "notion_token": "env:KENT_NOTION_TOKEN",
+    "notion_database_id": "https://www.notion.so/Knowledge-Base-0123456789abcdef0123456789abcdef?v=ignored",
+    "context_file": "context.kent.md"
+  }
+]
