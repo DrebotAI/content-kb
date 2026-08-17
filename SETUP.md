@@ -23,7 +23,8 @@ pip install -r requirements.txt
 Код викликає ці CLI-утиліти напряму через `subprocess`. Переконайся, що вони в `$PATH`:
 
 - **`ffmpeg`** — вилучення кадрів з німих відео та звукової доріжки
-- **`codex`** — аналіз і транскрибування через Claude (встановлюється з `npm install -g @anthropic-ai/codex`)
+- **`codex`** — аналіз постів і OCR картинок; встановлюється окремо й має бути залогінений (`codex login`).
+  Транскрибує НЕ він, а Deepgram (`transcribe.py`)
 
 yt-dlp уже в requirements.txt (через pip), не потрібен окремий інсталл.
 
@@ -45,7 +46,7 @@ yt-dlp уже в requirements.txt (через pip), не потрібен окр
 - `IG_COOKIES_FILE` — файл кук для сторіз (опційно, для анонімних постів це не потрібно)
 - `IG_USER_AGENT` — User-Agent для запитів до Instagram (опційно)
 - `IG_PROXY_URL` — проксі для IG запитів (опційно)
-- `IG_BROWSER_PROFILE` — теся для браузера ig_session_guardian (за замовчуванням `/home/tgsorter/ig-browser-profile`)
+- `IG_BROWSER_PROFILE` — тека профілю браузера ig_session_guardian (за замовчуванням `/home/tgsorter/ig-browser-profile`)
 - `GPROXY_API_KEY` — ключ для автоматичної генерації проксі (опційно)
 - `GPROXY_API_URL` — URL API для проксі (за замовчуванням `https://gproxy.net/api/v1/proxy/generate/`)
 - `GPROXY_COUNTRY` — країна для проксі (за замовчуванням `"VN"`)
@@ -189,10 +190,13 @@ python bot.py
 Постійна робота (systemd) — юніт лежить у `deploy/`. Під свій хост поправ у ньому
 `User=` і `WorkingDirectory=`:
 ```bash
-sudo cp deploy/tg-sorter.service /etc/systemd/system/
+sudo cp deploy/content-kb.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now tg-sorter
+sudo systemctl enable --now content-kb
 ```
+
+Якщо на сервері юніт уже стоїть під старою назвою (`tg-sorter.service`) — його
+не обовʼязково перейменовувати, просто вживай `systemctl` зі старою назвою.
 
 ## 11. Тести
 

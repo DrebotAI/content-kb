@@ -1,5 +1,5 @@
 [Unit]
-Description=Instagram persistent session guardian for tg-sorter
+Description=Instagram persistent session guardian for content-kb
 After=network-online.target
 Wants=network-online.target
 

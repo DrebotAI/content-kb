@@ -1,5 +1,5 @@
 [Unit]
-Description=Telegram Sorter/Transcriber bot
+Description=content-kb — Telegram to Notion content bot
 After=network-online.target
 Wants=network-online.target
 

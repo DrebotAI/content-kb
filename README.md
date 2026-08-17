@@ -1,8 +1,8 @@
-# tg-sorter
+# content-kb
 
 A Telegram bot that turns saved content into structured knowledge base entries in Notion. Transcribes audio, OCRs images, analyzes with AI, and writes rich Notion pages.
 
-tg-sorter solves the problem of capturing fleeting content (Instagram reels, TikTok videos, forwarded messages, voice notes, images, links) and turning it into a queryable knowledge base. It handles the entire pipeline: download, extract, transcribe, analyze, and store.
+content-kb solves the problem of capturing fleeting content (Instagram reels, TikTok videos, forwarded messages, voice notes, images, links) and turning it into a queryable knowledge base. It handles the entire pipeline: download, extract, transcribe, analyze, and store.
 
 ## What it does
 
@@ -111,7 +111,7 @@ The same bot serves all tenants from one process. Without `tenants.json`, it fal
 
 1. **Clone** the repo and enter the directory:
    ```bash
-   git clone <repo> tg-sorter && cd tg-sorter
+   git clone <repo> content-kb && cd content-kb
    ```
 
 2. **Install** Python dependencies:
@@ -181,14 +181,14 @@ Runs as a systemd service. Unit files in `deploy/`:
 
 | Unit | Purpose |
 |------|---------|
-| `tg-sorter.service` | the bot itself |
+| `content-kb.service` | the bot itself |
 | `ig-session-guardian.service` | keeps the Instagram session cookie alive |
 | `ig-session-guardian.timer` | schedules the guardian |
 
 ```bash
 sudo cp deploy/*.service deploy/*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now tg-sorter
+sudo systemctl enable --now content-kb
 ```
 
 Adjust `User=` and `WorkingDirectory=` to match your host.
