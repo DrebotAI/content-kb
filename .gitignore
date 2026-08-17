@@ -22,3 +22,7 @@ ig-login-*.png
 # host-specific ops helpers (hardcoded deploy host)
 ig_lan_form.py
 set-instagram-login.py
+
+# internal planning notes — contain personal/business context
+docs/
+ideas/
