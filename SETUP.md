@@ -132,7 +132,7 @@ python doctor.py kent --probe   # + створити тестову сторін
 Ловить рівно те, на чому спотикається кожен новий власник: не той токен,
 не додана інтеграція в Connections, брак колонок у базі, мертва Instagram-сесія.
 
-## 6. Миграція баз під нову схему (Content Potential + Hook)
+## 6. Міграція баз під нову схему (Content Potential + Hook)
 
 Якщо база створена старою версією коду, потрібна міграція:
 
@@ -154,13 +154,10 @@ python backfill.py                   # переаналізувати все р�
 ## 8. Instagram-сесія: автопідтримка
 
 Якщо сторіз скачуються регулярно, сесія протухає за кілька днів. Альтернатива ручному
-оновленню кук — запустити守ing守 як systemd timer:
+оновленню кук — запустити guardian як systemd timer:
 
 ```bash
-# Копіювати як /etc/systemd/system/ig-session-guardian.service
-# і /etc/systemd/system/ig-session-guardian.timer
-sudo cp ig-session-guardian.service /etc/systemd/system/
-sudo cp ig-session-guardian.timer /etc/systemd/system/
+sudo cp deploy/ig-session-guardian.service deploy/ig-session-guardian.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now ig-session-guardian.timer
 ```
@@ -189,28 +186,17 @@ sudo systemctl enable --now ig-session-guardian.timer
 ```
 python bot.py
 ```
-Постійна робота (systemd, `/etc/systemd/system/tg-sorter.service`):
-```ini
-[Unit]
-Description=Telegram Sorter/Transcriber bot
-After=network.target
-
-[Service]
-User=tgsorter
-WorkingDirectory=/home/tgsorter/app
-ExecStart=/home/tgsorter/app/venv/bin/python bot.py
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-```
+Постійна робота (systemd) — юніт лежить у `deploy/`. Під свій хост поправ у ньому
+`User=` і `WorkingDirectory=`:
+```bash
+sudo cp deploy/tg-sorter.service /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl enable --now tg-sorter
 ```
 
 ## 11. Тести
 
 ```
-python test_tenants.py && python test_bot.py && python test_notion_store.py && python test_ai_engine.py
+pytest
 ```
+105 тестів, мережу не чіпають — ганяються локально й на сервері перед рестартом.
