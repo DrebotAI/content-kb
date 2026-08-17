@@ -48,7 +48,9 @@ Download media (yt-dlp; ffmpeg for frames)
     ↓
 Transcribe (Deepgram) or OCR (Codex) images
     ↓
-Batch debounce (25 sec): combine consecutive messages into one entry
+Batch debounce (25 sec): hold consecutive messages
+    ↓
+If more than one: Codex stitches them into a single document
     ↓
 AI analysis (Codex CLI, model gpt-5.6-sol)
     ↓
