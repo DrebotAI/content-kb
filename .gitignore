@@ -26,6 +26,7 @@ set-instagram-login.py
 # internal planning notes — contain personal/business context
 docs/
 ideas/
+CLAUDE.md
 
 # browser profile when IG_BROWSER_PROFILE points inside the repo (deploy unit does)
 ig-browser-profile/
