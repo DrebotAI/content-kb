@@ -1,8 +1,8 @@
 import os
 
-from deepgram import DeepgramClient, FileSource, PrerecordedOptions
+from deepgram import DeepgramClient
 
-_client = DeepgramClient(os.environ["DEEPGRAM_API_KEY"])
+_client = DeepgramClient(api_key=os.environ["DEEPGRAM_API_KEY"])
 
 # ponytail: keyterm prompting (nova-3 only) boosts proper nouns/product names — plain
 # `keywords` on nova-2 explicitly does NOT help proper nouns per Deepgram's own docs.
@@ -15,11 +15,14 @@ KEYTERMS = [
 
 def transcribe_file(path: str) -> str:
     with open(path, "rb") as f:
-        payload: FileSource = {"buffer": f.read()}
-    options = PrerecordedOptions(
-        model="nova-3", smart_format=True, detect_language=True, keyterm=KEYTERMS
+        payload = f.read()
+    response = _client.listen.v1.media.transcribe_file(
+        request=payload,
+        model="nova-3",
+        smart_format=True,
+        detect_language=True,
+        keyterm=KEYTERMS,
     )
-    response = _client.listen.rest.v("1").transcribe_file(payload, options)
     return _transcript_from(response)
 
 

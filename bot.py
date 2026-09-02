@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import re
+import shutil
 import tempfile
 
 from dotenv import load_dotenv
@@ -45,10 +46,16 @@ def batch_meta(items: list) -> tuple:
     return creator, source
 
 
-def _queue_item(context, chat_id: int, tenant, text: str, creator: str, is_voice: bool) -> bool:
+def _queue_item(context, chat_id: int, tenant, text: str | None, creator: str, is_voice: bool,
+                *, paths: list | None = None, tmp_dir: str | None = None, caption: str = "") -> bool:
     first = not _pending.get(chat_id)
-    _pending.setdefault(chat_id, []).append(
-        {"text": text, "creator": creator, "is_voice": is_voice})
+    item = {"creator": creator, "is_voice": is_voice}
+    if paths is not None:
+        # ponytail: фото носить paths+tmp_dir замість text — OCR і чистка теки чекають до флашу
+        item.update(paths=paths, tmp_dir=tmp_dir, caption=caption)
+    else:
+        item["text"] = text
+    _pending.setdefault(chat_id, []).append(item)
     job_name = f"batch-{chat_id}"
     for job in context.job_queue.get_jobs_by_name(job_name):
         job.schedule_removal()
@@ -64,20 +71,44 @@ async def _flush_batch(context: ContextTypes.DEFAULT_TYPE) -> None:
     items = _pending.pop(chat_id, [])
     if not items:
         return
-    parts = [i["text"] for i in items]
-    transcript = "\n\n---\n\n".join(parts)
     creator, source = batch_meta(items)
 
-    if len(parts) == 1:
-        content = parts[0]
-    else:
-        await context.bot.send_message(chat_id, f"📚 Зшиваю {len(parts)} повідомлень в один запис…")
-        try:
-            content = await asyncio.to_thread(ai_engine.compile_digest, parts)
-        except Exception as e:
-            logger.exception("digest failed")
-            await _rescue(context, chat_id, f"❌ Codex не зшив пачку: {e}", transcript)
-            return
+    photo_items = [i for i in items if "paths" in i]
+    ocr_text = None
+    try:
+        if photo_items:
+            # усі слайди каруселі одним запитом до Codex, а не по одному на слайд
+            all_paths = [p for i in photo_items for p in i["paths"]]
+            caption = next((i["caption"] for i in photo_items if i["caption"]), "")
+            ocr_text = await asyncio.to_thread(ai_engine.read_image, all_paths, caption)
+    except Exception as e:
+        logger.exception("photo batch OCR failed")
+        rest = "\n\n---\n\n".join(i["text"] for i in items if "text" in i)
+        if rest:  # текст і голосові з тієї ж пачки не мають зникнути через одну картинку
+            await _rescue(context, chat_id, f"❌ Codex не прочитав картинки: {e}", rest)
+        else:
+            await context.bot.send_message(chat_id, f"❌ Codex не прочитав картинки: {e}")
+        return
+    finally:
+        # ponytail: своя mkdtemp-тека на слайд — простіше, ніж ділити один каталог
+        # між окремими апдейтами каруселі; прибираємо одразу після використання
+        for i in photo_items:
+            shutil.rmtree(i["tmp_dir"], ignore_errors=True)
+
+    parts, photo_placed = [], False
+    for i in items:
+        if "paths" in i:
+            if not photo_placed:
+                parts.append(ocr_text)
+                photo_placed = True
+        else:
+            parts.append(i["text"])
+
+    transcript = "\n\n---\n\n".join(parts)
+    content = await _digest(context, chat_id, parts, transcript,
+                            f"📚 Зшиваю {len(parts)} повідомлень в один запис…")
+    if content is None:
+        return
     await _save_and_reply(context, chat_id, tenant, content=content, link=None,
                           creator=creator, source=source, transcript=transcript)
 
@@ -109,6 +140,20 @@ async def _rescue(context, chat_id: int, reason: str, transcript: str) -> None:
         await send_text_or_file(context.bot, chat_id, transcript, "transcript.txt")
     except Exception:
         logger.exception("не віддав транскрипт після падіння")
+
+
+async def _digest(context, chat_id: int, parts: list[str], transcript: str, notice: str) -> str | None:
+    """Одна частина — як є. Кілька — Codex зшиває їх в один запис.
+    Провал зшивання рятує вже оплачений транскрипт і повертає None."""
+    if len(parts) == 1:
+        return parts[0]
+    await context.bot.send_message(chat_id, notice)
+    try:
+        return await asyncio.to_thread(ai_engine.compile_digest, parts)
+    except Exception as e:
+        logger.exception("digest failed")
+        await _rescue(context, chat_id, f"❌ Codex не зшив пачку: {e}", transcript)
+        return None
 
 
 async def _save_and_reply(context, chat_id: int, tenant, content: str, link: str | None,
@@ -204,15 +249,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         # photo[-1] — найбільший розмір; дрібні прев'ю Telegram не варто віддавати на OCR
         tg_file = await msg.photo[-1].get_file()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path = os.path.join(tmp_dir, "photo.jpg")
-            await tg_file.download_to_drive(path)
-            text = await asyncio.to_thread(ai_engine.read_image, [path], msg.caption or "")
+        # ponytail: своя mkdtemp-тека на слайд — карусель це N окремих апдейтів,
+        # спільний TemporaryDirectory довелось би координувати між ними; OCR
+        # усіх слайдів разом відбувається один раз на флаші (_flush_batch)
+        tmp_dir = tempfile.mkdtemp()
+        path = os.path.join(tmp_dir, "photo.jpg")
+        await tg_file.download_to_drive(path)
     except Exception as e:
-        logger.exception("photo read failed")
-        await context.bot.send_message(chat_id, f"❌ Не прочитав картинку: {e}")
+        logger.exception("photo download failed")
+        await context.bot.send_message(chat_id, f"❌ Не завантажив картинку: {e}")
         return
-    _queue_item(context, chat_id, tenant, text, creator_from_forward(msg), is_voice=False)
+    _queue_item(context, chat_id, tenant, None, creator_from_forward(msg), is_voice=False,
+               paths=[path], tmp_dir=tmp_dir, caption=msg.caption or "")
 
 
 def links_from(text: str) -> list:
@@ -263,11 +311,9 @@ async def _process_stories(context, chat_id: int, tenant, url: str, tag: str = "
         return
     transcript = parts[0] + "".join(
         f"\n\n--- STORY {index} ---\n\n{text}" for index, text in enumerate(parts[1:], 2))
-    try:
-        content = await asyncio.to_thread(ai_engine.compile_digest, parts) if len(parts) > 1 else parts[0]
-    except Exception as e:
-        logger.exception("story digest failed")
-        await _rescue(context, chat_id, f"❌ Codex не зшив stories: {e}", transcript)
+    content = await _digest(context, chat_id, parts, transcript,
+                            f"{tag}📚 Зшиваю {len(parts)} stories в один запис…")
+    if content is None:
         return
     await _save_and_reply(context, chat_id, tenant, content=content, link=url,
                           creator=meta["creator"], source=meta["source"], transcript=transcript)
@@ -318,21 +364,15 @@ async def _process_link(context, chat_id: int, tenant, url: str, tag: str = "") 
         await context.bot.send_message(chat_id, "❌ Ніде немає мовлення — записувати нічого")
         return
 
-    if len(transcripts) > 1:
-        note = f"📚 Зшиваю {len(transcripts)} шт в один запис"
-        await context.bot.send_message(chat_id, note + (f" (без мовлення: {skipped})" if skipped else ""))
-        try:
-            content = await asyncio.to_thread(ai_engine.compile_digest, transcripts)
-        except Exception as e:
-            logger.exception("digest failed")
-            await context.bot.send_message(chat_id, f"❌ Codex не зшив пачку: {e}")
-            return
-    else:
-        content = transcripts[0]
+    transcript = "\n\n---\n\n".join(transcripts)
+    notice = f"📚 Зшиваю {len(transcripts)} шт в один запис" + \
+        (f" (без мовлення: {skipped})" if skipped else "")
+    content = await _digest(context, chat_id, transcripts, transcript, notice)
+    if content is None:
+        return
 
     await _save_and_reply(context, chat_id, tenant, content=content, link=url,
-                          creator=meta["creator"], source=meta["source"],
-                          transcript="\n\n---\n\n".join(transcripts))
+                          creator=meta["creator"], source=meta["source"], transcript=transcript)
 
 
 async def _process_image_post(context, chat_id: int, tenant, url: str, tag: str = "",

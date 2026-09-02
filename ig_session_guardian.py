@@ -16,8 +16,6 @@ from playwright.sync_api import sync_playwright
 
 APP_DIR = Path(__file__).resolve().parent
 ENV_FILE = APP_DIR / ".env"
-PROFILE_DIR = Path(os.getenv(
-    "IG_BROWSER_PROFILE", Path.home() / ".cache" / "content-kb" / "ig-browser-profile"))
 
 
 def _replace_env(updates: dict[str, str]) -> None:
@@ -120,12 +118,15 @@ def run(refresh_only: bool = False, rotate_proxy: bool = False) -> int:
     cookie_file = Path(os.getenv("IG_COOKIES_FILE", str(APP_DIR / "cookies.txt")))
     if not cookie_file.is_absolute():
         cookie_file = APP_DIR / cookie_file
-    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    # читається після load_dotenv — інакше IG_BROWSER_PROFILE із .env ніколи не діяв
+    profile_dir = Path(os.getenv(
+        "IG_BROWSER_PROFILE", Path.home() / ".cache" / "content-kb" / "ig-browser-profile"))
+    profile_dir.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as playwright:
         context = playwright.chromium.launch_persistent_context(
-            str(PROFILE_DIR), headless=True, proxy=_playwright_proxy(proxy_url),
-            locale="en-US", timezone_id="Asia/Ho_Chi_Minh",
+            str(profile_dir), headless=True, proxy=_playwright_proxy(proxy_url),
+            locale="en-US", timezone_id=os.getenv("IG_BROWSER_TIMEZONE", "UTC"),
             args=["--disable-blink-features=AutomationControlled"],
         )
         print(json.dumps({"phase": "browser_started"}), flush=True)

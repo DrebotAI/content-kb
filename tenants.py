@@ -157,7 +157,3 @@ def load(force: bool = False) -> dict:
 def get(telegram_id: int):
     """Tenant або None. None — чужий, бот мовчить."""
     return load().get(telegram_id)
-
-
-def by_name(name: str):
-    return next((t for t in load().values() if t.name == name), None)

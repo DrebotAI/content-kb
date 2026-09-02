@@ -177,6 +177,13 @@ class _FakeResponse:
     def iter_bytes(self): yield b"jpeg-bytes"
 
 
+class _FakeClient:
+    def __init__(self, urls, **kwargs): self._urls = urls
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def stream(self, method, url, **kw): self._urls.append(url); return _FakeResponse()
+
+
 def _fake_info(url, out_dir):
     # як його віддає yt-dlp з process=False: entries — генератор, картинки в thumbnails
     return {
@@ -191,8 +198,7 @@ def _fake_info(url, out_dir):
 def test_download_images_takes_every_slide_and_biggest_thumbnail(monkeypatch):
     got = []
     monkeypatch.setattr(instagram, "_image_info", _fake_info)
-    monkeypatch.setattr(instagram.httpx, "stream",
-                        lambda m, u, **kw: got.append(u) or _FakeResponse())
+    monkeypatch.setattr(instagram.httpx, "Client", lambda **kw: _FakeClient(got, **kw))
     paths, meta = instagram.download_images("https://www.instagram.com/p/A/")
     assert got == ["http://big1", "http://big2"]  # останній thumbnail — найбільший
     assert len(paths) == 2 and all(os.path.getsize(p) for p in paths)

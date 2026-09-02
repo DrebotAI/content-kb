@@ -9,6 +9,7 @@
 """
 import os
 import sys
+from http.cookiejar import MozillaCookieJar
 
 import httpx
 from dotenv import load_dotenv
@@ -26,12 +27,17 @@ def _check_instagram() -> bool:
     if not path or not os.path.exists(path):
         print(f"  ⚠️  файлу кук нема ({path or 'IG_COOKIES_FILE не заданий'}) — сторіз не буде")
         return True  # не всім тенантам він потрібен
-    jar = {ln.split("\t")[5]: ln.split("\t")[6].strip()
-           for ln in open(path, encoding="utf-8") if ln.count("\t") >= 6}
-    if "sessionid" not in jar:
+    cookiejar = MozillaCookieJar(path)
+    try:
+        cookiejar.load(ignore_discard=True, ignore_expires=True)
+    except (OSError, ValueError):
+        print(f"  ❌ файл кук {path} не читається")
+        return False
+    cookies = {c.name: c.value for c in cookiejar}
+    if "sessionid" not in cookies:
         print(f"  ❌ у {path} нема sessionid — залогінься в IG і перевикладай куки")
         return False
-    r = httpx.get("https://www.instagram.com/accounts/edit/", cookies=jar,
+    r = httpx.get("https://www.instagram.com/accounts/edit/", cookies=cookies,
                   follow_redirects=False, timeout=15,
                   headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                          "AppleWebKit/537.36 Chrome/131.0 Safari/537.36"})

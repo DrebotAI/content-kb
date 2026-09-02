@@ -174,6 +174,102 @@ if __name__ == "__main__":
     print("ok")
 
 
+def test_photo_batch_reads_all_slides_in_one_ocr_call(monkeypatch):
+    """Карусель — N окремих апдейтів handle_photo, але OCR має піти одним запитом
+    на флаші, а не по одному на слайд."""
+    bot._pending.clear()
+
+    ocr_calls = []
+
+    def fake_read_image(paths, caption):
+        ocr_calls.append((list(paths), caption))
+        return "OCR-RESULT"
+    monkeypatch.setattr(bot.ai_engine, "read_image", fake_read_image)
+
+    class _TgFile:
+        async def download_to_drive(self, path):
+            with open(path, "wb") as f:
+                f.write(b"fake-jpeg-bytes")
+
+    class _PhotoSize:
+        async def get_file(self):
+            return _TgFile()
+
+    class _Bot:
+        async def send_message(self, chat_id, text):
+            pass
+
+    class _Jobs2:
+        def get_jobs_by_name(self, name):
+            return []
+
+        def run_once(self, callback, when, **kwargs):
+            pass
+
+    def make_update(caption):
+        msg = SimpleNamespace(photo=[_PhotoSize()], caption=caption, chat_id=5,
+                              forward_origin=None)
+        return SimpleNamespace(effective_user=SimpleNamespace(id=42), message=msg)
+
+    ctx = SimpleNamespace(job_queue=_Jobs2(), bot=_Bot())
+    asyncio.run(bot.handle_photo(make_update(None), ctx))
+    asyncio.run(bot.handle_photo(make_update("підпис"), ctx))
+
+    assert len(bot._pending[5]) == 2
+    tmp_dirs = [item["tmp_dir"] for item in bot._pending[5]]
+    for d in tmp_dirs:
+        assert os.path.isdir(d)
+
+    saved = []
+    async def fake_save(*args, **kwargs):
+        saved.append(kwargs)
+    monkeypatch.setattr(bot, "_save_and_reply", fake_save)
+
+    job_ctx = SimpleNamespace(job=SimpleNamespace(chat_id=5, data=KENT), bot=_Bot())
+    asyncio.run(bot._flush_batch(job_ctx))
+
+    assert len(ocr_calls) == 1  # один Codex-виклик на всю пачку, не два
+    paths, caption = ocr_calls[0]
+    assert len(paths) == 2
+    assert caption == "підпис"  # перший непорожній підпис серед слайдів
+    assert saved == [{"content": "OCR-RESULT", "link": None, "creator": "",
+                      "source": "Telegram", "transcript": "OCR-RESULT"}]
+    for d in tmp_dirs:
+        assert not os.path.isdir(d)  # теки прибрані після флашу
+
+    bot._pending.clear()
+
+
+def test_process_link_rescues_transcript_when_digest_fails(monkeypatch):
+    """Раніше _process_link губив оплачений транскрипт при провалі Codex-зшивання —
+    тепер він рятується так само, як в інших місцях."""
+    monkeypatch.setattr(bot.notion_store, "find_by_link", lambda tenant, url: None)
+    monkeypatch.setattr(bot.instagram, "download_audio",
+                        lambda url: (["a.mp3", "b.mp3"], {"creator": "@x", "source": "Telegram"}))
+    monkeypatch.setattr(bot.transcribe, "transcribe_file", lambda path: f"TEXT:{path}")
+
+    def fail_digest(parts):
+        raise RuntimeError("codex died")
+    monkeypatch.setattr(bot.ai_engine, "compile_digest", fail_digest)
+
+    rescued = []
+    async def fake_rescue(context, chat_id, reason, transcript):
+        rescued.append((reason, transcript))
+    monkeypatch.setattr(bot, "_rescue", fake_rescue)
+
+    class _Bot:
+        async def send_message(self, chat_id, text):
+            pass
+    context = SimpleNamespace(bot=_Bot())
+
+    asyncio.run(bot._process_link(context, 5, KENT, "https://www.instagram.com/reel/AAA/"))
+
+    assert len(rescued) == 1
+    reason, transcript = rescued[0]
+    assert "codex died" in reason
+    assert transcript == "TEXT:a.mp3\n\n---\n\nTEXT:b.mp3"
+
+
 def test_links_from_picks_tiktok():
     text = "гля https://www.tiktok.com/@a/video/1 і https://vm.tiktok.com/ZMabc/."
     assert links_from(text) == ["https://www.tiktok.com/@a/video/1",

@@ -1,5 +1,7 @@
 # content-kb
 
+[![tests](https://github.com/DrebotAI/content-kb/actions/workflows/test.yml/badge.svg)](https://github.com/DrebotAI/content-kb/actions/workflows/test.yml)
+
 A Telegram bot that turns saved content into structured knowledge base entries in Notion. Transcribes audio, OCRs images, analyzes with AI, and writes rich Notion pages.
 
 content-kb solves the problem of capturing fleeting content (Instagram reels, TikTok videos, forwarded messages, voice notes, images, links) and turning it into a queryable knowledge base. It handles the entire pipeline: download, extract, transcribe, analyze, and store.
@@ -115,7 +117,7 @@ paid account. Telegram's and Notion's APIs are free at this volume.
 
 ## Requirements
 
-- **Python** 3.12 (what production runs and tests are green on)
+- **Python** 3.12+ (production runs 3.12; tests are green up to 3.14)
 - **CLI binaries** — these are *not* installed by `requirements.txt`, get them separately:
   - `ffmpeg` — extracts frames from silent videos and the audio track
   - `codex` — the [OpenAI Codex CLI](https://github.com/openai/codex). It does the content
@@ -189,7 +191,7 @@ git clone https://github.com/DrebotAI/content-kb.git && cd content-kb
    python bot.py
    ```
 
-Full setup guide, with the Notion migration and Instagram session details (Ukrainian):
+Full setup guide, with the Instagram session details (Ukrainian):
 [SETUP.md](SETUP.md)
 
 ## Repo layout
@@ -205,9 +207,8 @@ Full setup guide, with the Notion migration and Instagram session details (Ukrai
 | `delivery.py` | Telegram message sending utility; splits large text (>3500 chars) into files |
 | `setup_notion.py` | One-time database creator; builds schema and prints config block for new tenants |
 | `doctor.py` | Pre-deployment health check; verifies Notion access, schema, Instagram cookies, token validity |
-| `backfill.py` | Schema migration & content re-scoring; adds missing columns; fills empty fields in existing pages |
 | `ig_session_guardian.py` | Persistent Playwright browser; maintains Instagram session cookies; handles login challenges & proxy rotation |
-| `test_*.py` | Unit tests (8 files, 105 tests) |
+| `test_*.py` | Unit tests — run with pytest, no network |
 
 ## Tests
 
@@ -216,9 +217,7 @@ Run tests with:
 pytest
 ```
 
-105 tests, no network access — they run offline.
-
-Test files: `test_bot.py`, `test_notion_store.py`, `test_ai_engine.py`, `test_instagram.py`, `test_tenants.py`, `test_transcribe.py`, `test_delivery.py`, `test_ig_session_guardian.py` (8 files).
+They need no network access and no API keys.
 
 ## Deployment
 
@@ -237,6 +236,8 @@ sudo systemctl enable --now content-kb
 ```
 
 Adjust `User=` and `WorkingDirectory=` to match your host.
+
+`ig-session-guardian` is optional and its proxy rotation is written against [GProxy](https://gproxy.net)'s API — treat `ig_session_guardian.py` as an example to adapt for your proxy provider, or skip it and export `cookies.txt` from your browser manually.
 
 ## License
 

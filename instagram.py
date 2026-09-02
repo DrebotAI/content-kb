@@ -278,22 +278,20 @@ def download_images(url: str) -> tuple[list, dict]:
     # entries із process=False — генератор, а _meta пройдеться по ньому вдруге
     info["entries"] = _entries(info)
 
+    client_kwargs = {"timeout": 60, "follow_redirects": True}
+    proxy = _instagram_proxy()
+    if proxy:
+        client_kwargs["proxy"] = proxy
+
     paths = []
-    for i, entry in enumerate(info["entries"]):
-        thumbs = entry.get("thumbnails") or []
-        if not thumbs:
-            continue
-        path = os.path.join(out_dir, f"slide{i:02d}.jpg")
-        stream_kwargs = {"timeout": 60, "follow_redirects": True}
-        proxy = _instagram_proxy()
-        if proxy:
-            stream_kwargs["proxy"] = proxy
-        with httpx.stream("GET", thumbs[-1]["url"], **stream_kwargs) as r:
-            r.raise_for_status()
-            with open(path, "wb") as f:
-                for chunk in r.iter_bytes():
-                    f.write(chunk)
-        paths.append(path)
+    with httpx.Client(**client_kwargs) as client:
+        for i, entry in enumerate(info["entries"]):
+            thumbs = entry.get("thumbnails") or []
+            if not thumbs:
+                continue
+            path = os.path.join(out_dir, f"slide{i:02d}.jpg")
+            _write_response(client, thumbs[-1]["url"], path)
+            paths.append(path)
     if not paths:
         raise RuntimeError("yt-dlp не знайшов у пості жодної картинки")
 

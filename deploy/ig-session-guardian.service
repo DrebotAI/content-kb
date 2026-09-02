@@ -13,7 +13,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/opt/content-kb /var/lib/content-kb
+# профіль браузера — всередині WorkingDirectory: ProtectHome=read-only не пустить у ~/.cache
+Environment=IG_BROWSER_PROFILE=/opt/content-kb/ig-browser-profile
+ReadWritePaths=/opt/content-kb
 
 [Install]
 WantedBy=multi-user.target
