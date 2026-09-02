@@ -19,6 +19,10 @@ load_dotenv()
 from notion_client import Client
 
 import tenants
+# лейбли й теги живуть в ai_engine — це те саме джерело правди, що формує промпт
+# для моделі; дублювати рядки тут означає, що KB_LANGUAGE/KB_TAGS одного дня
+# розійдуться зі схемою бази, і select-колонка мовчки перестане приймати значення
+from ai_engine import FORMATS, POTENTIALS, TAGS, VALUES
 
 SCHEMA = {
     "Name": {"title": {}},
@@ -27,23 +31,21 @@ SCHEMA = {
         {"name": n} for n in ("IG Reel", "IG Story", "IG Post", "TikTok", "Telegram", "Voice")
     ]}},
     "Link": {"url": {}},
-    "Tags": {"multi_select": {}},
+    "Tags": {"multi_select": {"options": [{"name": n} for n in TAGS]}},
     "Value": {"select": {"options": [
-        {"name": "🔥 Must-know", "color": "red"},
-        {"name": "👍 Корисно", "color": "green"},
-        {"name": "📎 Довідково", "color": "gray"},
+        {"name": VALUES[0], "color": "red"},
+        {"name": VALUES[1], "color": "green"},
+        {"name": VALUES[2], "color": "gray"},
     ]}},
     # друга шкала, незалежна від Value: банальне може мати сильний кут, і навпаки
     "Content Potential": {"select": {"options": [
-        {"name": "🔥 Strong angle", "color": "red"},
-        {"name": "👍 Adaptable", "color": "green"},
-        {"name": "📎 Weak", "color": "gray"},
+        {"name": POTENTIALS[0], "color": "red"},
+        {"name": POTENTIALS[1], "color": "green"},
+        {"name": POTENTIALS[2], "color": "gray"},
     ]}},
     "Content Angle": {"rich_text": {}},
     "Hook": {"rich_text": {}},
-    "Recommended Format": {"select": {"options": [{"name": n} for n in (
-        "Reel", "talking-head Reel", "screen recording", "carousel", "Telegram post",
-        "story sequence", "technical breakdown", "case study", "не для контенту")]}},
+    "Recommended Format": {"select": {"options": [{"name": n} for n in FORMATS]}},
     "Why useful": {"rich_text": {}},
     "Transcript": {"rich_text": {}},  # шукабельна копія тіла: пошук по блоках не працює
     "Created": {"created_time": {}},

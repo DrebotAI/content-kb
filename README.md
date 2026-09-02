@@ -25,11 +25,11 @@ For each piece of content, the bot:
 4. **Analyzes** the combined text via Codex AI to extract:
    - Title, TLDR, summary
    - Key ideas, practical takeaways, learning actions
-   - Tags (from: content-idea, product/course, delivery, sales, lead-gen)
+   - Tags (from a fixed vocabulary you can replace via `KB_TAGS`)
    - Two independent 3-level scales:
      - **Value** (Must-know / Useful / Reference) — learning & work value
      - **Content Potential** (Strong angle / Adaptable / Weak) — repackageable into creator's own content
-   - Hook (first line of a Reel, in Ukrainian)
+   - Hook (first line of a Reel)
    - Content angle and recommended format (Reel, carousel, case study, etc.)
    - Adaptation steps to turn it into original content
 5. **Saves to Notion** as a rich page with:
@@ -111,9 +111,14 @@ Plus the `codex` CLI — see [Requirements](#requirements).
 **This is not free to run.** Deepgram bills per minute of audio and the Codex CLI needs a
 paid account. Telegram's and Notion's APIs are free at this volume.
 
-**Language.** Analysis follows the language of the content, except the `hook` and
-`content_angle` fields, which are always Ukrainian — that is hardcoded in the prompt in
-`ai_engine.py`. Change those lines to target another language.
+**Language.** `KB_LANGUAGE` sets the language of everything the AI writes — title, summary,
+key ideas, hook, content angle: `uk` for Ukrainian (the default), `en` for English, or
+`auto` to follow whatever language the content itself is in. The label vocabulary stored in
+Notion (Value, Content Potential, Tags, Recommended Format) follows `uk` and `en`, but stays
+Ukrainian under `auto`, because those are enum values in the database and cannot change from
+one message to the next. `setup_notion.py` creates the select options from the same setting,
+so choose the language *before* creating the database — switch it later and old entries keep
+their old labels while the columns end up holding both sets.
 
 ## Requirements
 
@@ -218,6 +223,14 @@ pytest
 ```
 
 They need no network access and no API keys.
+
+## Making it yours
+
+This bot assumes the user is a content creator building a learning library. To adapt it to a different use case, there are three places to customize, in order:
+
+1. **`context.md`** — your profile. The AI reads this on every analysis to decide what scores as valuable to you. Without it, everything defaults to reference material. This is the single biggest lever on scoring quality.
+2. **`KB_LANGUAGE` and `KB_TAGS`** — output language and tag vocabulary. Set these before running `setup_notion.py` to create the database; changing them later breaks the label enum.
+3. **`ai_engine.py`** — the scoring scales, criteria text, and repackaging rules live in one file. If your use case is not "building a learning library," rewrite the prompt in that file; it is the only place you need to touch to swap scoring logic or output format.
 
 ## Deployment
 
