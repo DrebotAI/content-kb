@@ -28,6 +28,8 @@ set-instagram-login.py
 docs/
 ideas/
 CLAUDE.md
+STATE.md
 
 # browser profile when IG_BROWSER_PROFILE points inside the repo (deploy unit does)
 ig-browser-profile/
+finish.local.sh
