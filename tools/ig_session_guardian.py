@@ -14,7 +14,9 @@ from dotenv import load_dotenv
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-APP_DIR = Path(__file__).resolve().parent
+# project root, one level above tools/: .env, cookies.txt and debug screenshots
+# live next to the repo, not inside the tools/ directory
+APP_DIR = Path(__file__).resolve().parents[1]
 ENV_FILE = APP_DIR / ".env"
 
 

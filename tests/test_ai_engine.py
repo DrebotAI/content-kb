@@ -4,8 +4,8 @@ import os
 import tempfile
 from pathlib import Path
 
-import ai_engine
-from ai_engine import CODEX_MODEL, _codex_argv, _extract_json, _normalize, profile
+from content_kb import ai_engine
+from content_kb.ai_engine import CODEX_MODEL, _codex_argv, _extract_json, _normalize, profile
 
 
 @contextlib.contextmanager
@@ -61,7 +61,7 @@ def test_profile_reads_context_file():
 
 def test_criteria_are_global_not_locked_to_this_weeks_deal():
     """Через це формулювання вся бібліотека й мірялась одним поточним проєктом."""
-    from ai_engine import _CRITERIA
+    from content_kb.ai_engine import _CRITERIA
     assert "цього тижня" not in _CRITERIA
     assert "content_potential" in _CRITERIA and "value" in _CRITERIA
 
@@ -245,7 +245,7 @@ def test_normalize_still_rejects_out_of_set_value_in_en_mode():
 def test_setup_notion_schema_matches_ai_engine_tuples():
     """Дрейф, який ця переробка мала прибрати: SCHEMA дублювала лейбли вручну —
     зміна KB_LANGUAGE/KB_TAGS тепер не може розсинхронити базу з промптом."""
-    import setup_notion
+    from tools import setup_notion
 
     def names(prop):
         return [o["name"] for o in prop["options"]]

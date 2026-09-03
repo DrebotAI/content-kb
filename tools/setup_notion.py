@@ -1,6 +1,6 @@
 """Одноразово, на кожного власника бази:
 
-    python setup_notion.py <сторінка: id або URL> [notion_token | env:VAR]
+    python tools/setup_notion.py <сторінка: id або URL> [notion_token | env:VAR]
 
 Створює в його воркспейсі базу "Knowledge Base" з потрібною схемою і друкує
 готовий блок для tenants.json.
@@ -18,11 +18,11 @@ load_dotenv()
 
 from notion_client import Client
 
-import tenants
+from content_kb import tenants
 # лейбли й теги живуть в ai_engine — це те саме джерело правди, що формує промпт
 # для моделі; дублювати рядки тут означає, що KB_LANGUAGE/KB_TAGS одного дня
 # розійдуться зі схемою бази, і select-колонка мовчки перестане приймати значення
-from ai_engine import FORMATS, POTENTIALS, TAGS, VALUES
+from content_kb.ai_engine import FORMATS, POTENTIALS, TAGS, VALUES
 
 SCHEMA = {
     "Name": {"title": {}},
@@ -64,7 +64,7 @@ def _token(argv: list) -> str:
 
 def main() -> None:
     if len(sys.argv) not in (2, 3):
-        sys.exit("Використання: python setup_notion.py <сторінка: id або URL> [notion_token]")
+        sys.exit("Використання: python tools/setup_notion.py <сторінка: id або URL> [notion_token]")
     # той самий парсер, що й у конфігу: приймає і голий id, і скопійований URL
     page_id = tenants.database_id(sys.argv[1])
     # ponytail: та сама стара версія API, що й у notion_store

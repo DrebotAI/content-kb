@@ -5,17 +5,17 @@ from types import SimpleNamespace
 for var in ("DEEPGRAM_API_KEY", "TELEGRAM_BOT_TOKEN"):
     os.environ.setdefault(var, "test")
 
-import tenants
-from tenants import Tenant
+from content_kb import tenants
+from content_kb.tenants import Tenant
 
 KENT = Tenant("kent", 42, "ntn_kent", "11111111-1111-1111-1111-111111111111",
               "context.kent.md")
 OWNER = Tenant("owner", 7, "ntn_owner", "22222222-2222-2222-2222-222222222222")
 tenants._cache = {t.telegram_id: t for t in (KENT, OWNER)}
 
-import bot
-from bot import (_process_stories, _queue_item, _tenant, batch_meta,
-                 creator_from_forward, links_from)
+from content_kb import bot
+from content_kb.bot import (_process_stories, _queue_item, _tenant, batch_meta,
+                            creator_from_forward, links_from)
 
 
 def _item(text, creator="", is_voice=False):

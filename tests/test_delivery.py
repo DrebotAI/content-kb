@@ -1,6 +1,6 @@
 import asyncio
 
-from delivery import MAX_MESSAGE_LEN, send_text_or_file
+from content_kb.delivery import MAX_MESSAGE_LEN, send_text_or_file
 
 
 class FakeBot:

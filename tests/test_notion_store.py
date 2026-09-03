@@ -1,8 +1,8 @@
 import httpx
 
-import notion_store
-from notion_store import _build_blocks, _build_properties, _retry
-from tenants import Tenant
+from content_kb import notion_store
+from content_kb.notion_store import _build_blocks, _build_properties, _retry
+from content_kb.tenants import Tenant
 
 notion_store.RETRY_BACKOFF_SECONDS = 0  # без реальних пауз у тестах
 

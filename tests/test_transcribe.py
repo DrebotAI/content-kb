@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("DEEPGRAM_API_KEY", "test")
 
-from transcribe import _transcript_from
+from content_kb.transcribe import _transcript_from
 
 
 def _response(*transcripts):

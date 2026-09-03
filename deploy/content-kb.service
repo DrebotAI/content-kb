@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 User=content-kb
 WorkingDirectory=/opt/content-kb
-ExecStart=/opt/content-kb/venv/bin/python bot.py
+ExecStart=/opt/content-kb/venv/bin/python -m content_kb.bot
 Restart=on-failure
 RestartSec=5
 

@@ -13,12 +13,8 @@ from telegram import Update
 from telegram.error import NetworkError
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-import ai_engine
-import instagram
-import notion_store
-import tenants
-import transcribe
-from delivery import send_text_or_file
+from . import ai_engine, instagram, notion_store, tenants, transcribe
+from .delivery import send_text_or_file
 
 logging.basicConfig(level=logging.INFO)
 # httpx логує повний URL запиту, а в ньому — токен бота; у journald це назавжди.

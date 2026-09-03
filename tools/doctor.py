@@ -1,8 +1,8 @@
 """Перевірка тенантів перед тим, як віддавати бота людині:
 
-    python doctor.py                # усі тенанти
-    python doctor.py kent           # один
-    python doctor.py kent --probe   # ще й створити тестову сторінку і заархівувати
+    python tools/doctor.py                # усі тенанти
+    python tools/doctor.py kent           # один
+    python tools/doctor.py kent --probe   # ще й створити тестову сторінку і заархівувати
 
 Ловить рівно ті три речі, на яких спотикається кожен новий власник бази:
 токен не той, інтеграцію не додали в Connections, у базі бракує колонок.
@@ -16,8 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import notion_store
-import tenants
+from content_kb import notion_store, tenants
 
 
 def _check_instagram() -> bool:

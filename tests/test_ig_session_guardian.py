@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-import ig_session_guardian as guardian
+from tools import ig_session_guardian as guardian
 
 
 def test_playwright_proxy_splits_credentials():

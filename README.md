@@ -116,20 +116,21 @@ key ideas, hook, content angle: `uk` for Ukrainian (the default), `en` for Engli
 `auto` to follow whatever language the content itself is in. The label vocabulary stored in
 Notion (Value, Content Potential, Tags, Recommended Format) follows `uk` and `en`, but stays
 Ukrainian under `auto`, because those are enum values in the database and cannot change from
-one message to the next. `setup_notion.py` creates the select options from the same setting,
+one message to the next. `tools/setup_notion.py` creates the select options from the same setting,
 so choose the language *before* creating the database — switch it later and old entries keep
 their old labels while the columns end up holding both sets.
 
 ## Requirements
 
 - **Python** 3.12+ (production runs 3.12; tests are green up to 3.14)
-- **CLI binaries** — these are *not* installed by `requirements.txt`, get them separately:
+- **CLI binaries** — these are *not* installed by `pyproject.toml`, get them separately:
   - `ffmpeg` — extracts frames from silent videos and the audio track
   - `codex` — the [OpenAI Codex CLI](https://github.com/openai/codex). It does the content
     analysis and the image OCR, called as a subprocess (`codex exec`). Install it per its own
     README, then run `codex login` once. It is *not* what transcribes audio — that is Deepgram.
-    To swap in a different model or tool, `ai_engine.py` is the only file that shells out to it.
-- **Installed for you** by `requirements.txt`: `yt-dlp` (downloads IG/TikTok media),
+    To swap in a different model or tool, `content_kb/ai_engine.py` is the only file that shells
+    out to it.
+- **Installed for you** by `pip install -e .`: `yt-dlp` (downloads IG/TikTok media),
   `playwright` (only for the optional Instagram session guardian), the Telegram, Deepgram
   and Notion SDKs.
 - **Environment variables** — full annotated list in [`.env.example`](.env.example). The ones
@@ -147,7 +148,7 @@ Do this once per knowledge-base owner, in that person's own Notion workspace.
 3. Create an empty Notion page that will hold the database.
 4. On that page: **•••** → **Connections** → **Add connection** → pick your integration.
    Skipping this step is the single most common failure — the token exists but sees nothing.
-5. Let `setup_notion.py` build the database and its schema (Quick start step 4).
+5. Let `tools/setup_notion.py` build the database and its schema (Quick start step 4).
 
 ## Quick start
 
@@ -157,7 +158,7 @@ git clone https://github.com/DrebotAI/content-kb.git && cd content-kb
 
 1. **Install** Python dependencies, plus `ffmpeg` and `codex` (see Requirements):
    ```bash
-   pip install -r requirements.txt
+   pip install -e .
    codex login
    ```
 
@@ -176,7 +177,7 @@ git clone https://github.com/DrebotAI/content-kb.git && cd content-kb
 
 4. **Create the Notion database** (after [Notion setup](#notion-setup) above):
    ```bash
-   python setup_notion.py <notion-page-url> env:NOTION_TOKEN
+   python tools/setup_notion.py <notion-page-url> env:NOTION_TOKEN
    ```
    Creates the "Knowledge Base" database with the required schema and prints a config block.
 
@@ -187,13 +188,13 @@ git clone https://github.com/DrebotAI/content-kb.git && cd content-kb
 
 6. **Verify** before you trust it:
    ```bash
-   python doctor.py                # check every owner's token, schema and IG session
-   python doctor.py owner --probe  # also create and archive a real test page
+   python tools/doctor.py                # check every owner's token, schema and IG session
+   python tools/doctor.py owner --probe  # also create and archive a real test page
    ```
 
 7. **Start the bot**, then send it an Instagram link:
    ```bash
-   python bot.py
+   python -m content_kb.bot
    ```
 
 Full setup guide, with the Instagram session details (Ukrainian):
@@ -203,17 +204,17 @@ Full setup guide, with the Instagram session details (Ukrainian):
 
 | File | Purpose |
 |------|---------|
-| `bot.py` | Main Telegram bot loop; message handlers for links, photos, voice, text; batch debouncing; `/id` and `/voice` commands |
-| `notion_store.py` | Notion API client; saves pages with properties & blocks; checks schema; retries on transient errors |
-| `ai_engine.py` | Codex CLI subprocess wrapper; AI analysis (JSON parsing, value/potential scoring); image OCR; message digest compilation; profile fallback |
-| `instagram.py` | yt-dlp downloader wrapper; handles IG reels/stories/posts and TikTok; audio extraction; silent video frame extraction; story batch download |
-| `transcribe.py` | Deepgram API client; speech-to-text with keyterm boosting (Claude Code, product names, etc.) |
-| `tenants.py` | Multi-tenant config parser; loads `tenants.json` or `.env` fallback; validates & caches tenant registry |
-| `delivery.py` | Telegram message sending utility; splits large text (>3500 chars) into files |
-| `setup_notion.py` | One-time database creator; builds schema and prints config block for new tenants |
-| `doctor.py` | Pre-deployment health check; verifies Notion access, schema, Instagram cookies, token validity |
-| `ig_session_guardian.py` | Persistent Playwright browser; maintains Instagram session cookies; handles login challenges & proxy rotation |
-| `test_*.py` | Unit tests — run with pytest, no network |
+| `content_kb/bot.py` | Main Telegram bot loop; message handlers for links, photos, voice, text; batch debouncing; `/id` and `/voice` commands |
+| `content_kb/notion_store.py` | Notion API client; saves pages with properties & blocks; checks schema; retries on transient errors |
+| `content_kb/ai_engine.py` | Codex CLI subprocess wrapper; AI analysis (JSON parsing, value/potential scoring); image OCR; message digest compilation; profile fallback |
+| `content_kb/instagram.py` | yt-dlp downloader wrapper; handles IG reels/stories/posts and TikTok; audio extraction; silent video frame extraction; story batch download |
+| `content_kb/transcribe.py` | Deepgram API client; speech-to-text with keyterm boosting (Claude Code, product names, etc.) |
+| `content_kb/tenants.py` | Multi-tenant config parser; loads `tenants.json` or `.env` fallback; validates & caches tenant registry |
+| `content_kb/delivery.py` | Telegram message sending utility; splits large text (>3500 chars) into files |
+| `tools/setup_notion.py` | One-time database creator; builds schema and prints config block for new tenants |
+| `tools/doctor.py` | Pre-deployment health check; verifies Notion access, schema, Instagram cookies, token validity |
+| `tools/ig_session_guardian.py` | Persistent Playwright browser; maintains Instagram session cookies; handles login challenges & proxy rotation |
+| `tests/test_*.py` | Unit tests — run with pytest, no network |
 
 ## Tests
 
@@ -229,8 +230,8 @@ They need no network access and no API keys.
 This bot assumes the user is a content creator building a learning library. To adapt it to a different use case, there are three places to customize, in order:
 
 1. **`context.md`** — your profile. The AI reads this on every analysis to decide what scores as valuable to you. Without it, everything defaults to reference material. This is the single biggest lever on scoring quality.
-2. **`KB_LANGUAGE` and `KB_TAGS`** — output language and tag vocabulary. Set these before running `setup_notion.py` to create the database; changing them later breaks the label enum.
-3. **`ai_engine.py`** — the scoring scales, criteria text, and repackaging rules live in one file. If your use case is not "building a learning library," rewrite the prompt in that file; it is the only place you need to touch to swap scoring logic or output format.
+2. **`KB_LANGUAGE` and `KB_TAGS`** — output language and tag vocabulary. Set these before running `tools/setup_notion.py` to create the database; changing them later breaks the label enum.
+3. **`content_kb/ai_engine.py`** — the scoring scales, criteria text, and repackaging rules live in one file. If your use case is not "building a learning library," rewrite the prompt in that file; it is the only place you need to touch to swap scoring logic or output format.
 
 ## Deployment
 
@@ -250,7 +251,7 @@ sudo systemctl enable --now content-kb
 
 Adjust `User=` and `WorkingDirectory=` to match your host.
 
-`ig-session-guardian` is optional and its proxy rotation is written against [GProxy](https://gproxy.net)'s API — treat `ig_session_guardian.py` as an example to adapt for your proxy provider, or skip it and export `cookies.txt` from your browser manually.
+`ig-session-guardian` is optional and its proxy rotation is written against [GProxy](https://gproxy.net)'s API — treat `tools/ig_session_guardian.py` as an example to adapt for your proxy provider, or skip it and export `cookies.txt` from your browser manually.
 
 ## License
 

@@ -1,6 +1,6 @@
 """Кілька власників баз на одному боті.
 
-Джерело правди — `tenants.json` поруч із кодом (у git не їде — там токени).
+Джерело правди — `tenants.json` у корені проєкту (у git не їде — там токени).
 Файлу немає — конфіг збирається з `.env`, і бот працює як раніше, на одного:
 старий деплой оновлюється без жодної правки конфігу.
 
@@ -17,7 +17,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-_HERE = Path(__file__).parent
+# project root, one level above the content_kb package: tenants.json and
+# per-tenant context files live next to the repo, not inside the package
+_HERE = Path(__file__).resolve().parents[1]
 CONFIG_FILE = Path(os.getenv("TENANTS_FILE") or _HERE / "tenants.json")
 
 # id бази — 32 hex у самому кінці шляху. Беремо останній hex-«прогін» і з нього

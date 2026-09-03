@@ -3,8 +3,8 @@ import os
 import tempfile
 from pathlib import Path
 
-import tenants
-from tenants import ConfigError, Tenant, database_id, parse
+from content_kb import tenants
+from content_kb.tenants import ConfigError, Tenant, database_id, parse
 
 OK = {"name": "kent", "telegram_id": 42, "notion_token": "ntn_x",
       "notion_database_id": "0123456789abcdef0123456789abcdef"}
@@ -82,7 +82,7 @@ def test_two_tenants_two_bases():
 
 def test_context_file_defaults_and_resolves_next_to_code():
     reg = parse([OK, dict(OK, name="s", telegram_id=7, context_file="context.kent.md")])
-    assert reg[42].profile_path == Path(tenants.__file__).parent / "context.md"
+    assert reg[42].profile_path == tenants._HERE / "context.md"
     assert reg[7].profile_path.name == "context.kent.md"
 
 
@@ -100,7 +100,7 @@ def test_file_config_beats_env(tmp_path=None):
             assert tenants.get(42).name == "kent"
             assert tenants.get(999) is None  # чужий — бот мовчить
         finally:
-            tenants.CONFIG_FILE = Path(tenants.__file__).with_name("tenants.json")
+            tenants.CONFIG_FILE = tenants._HERE / "tenants.json"
             tenants._cache = None
 
 
@@ -113,7 +113,7 @@ def test_env_fallback_keeps_old_single_user_deploy_alive():
         owner = tenants.get(111111111)
         assert owner and owner.notion_token == "ntn_env"
     finally:
-        tenants.CONFIG_FILE = Path(tenants.__file__).with_name("tenants.json")
+        tenants.CONFIG_FILE = tenants._HERE / "tenants.json"
         tenants._cache = None
 
 
@@ -125,7 +125,7 @@ def test_env_fallback_says_what_is_missing():
     try:
         assert "ALLOWED_USER_ID" in _fails(tenants.load, force=True)
     finally:
-        tenants.CONFIG_FILE = Path(tenants.__file__).with_name("tenants.json")
+        tenants.CONFIG_FILE = tenants._HERE / "tenants.json"
         tenants._cache = None
 
 

@@ -15,7 +15,7 @@
 
 ### Python пакети
 ```
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### Бінарні утиліти (встановити окремо)
@@ -24,9 +24,9 @@ pip install -r requirements.txt
 
 - **`ffmpeg`** — вилучення кадрів з німих відео та звукової доріжки
 - **`codex`** — аналіз постів і OCR картинок; встановлюється окремо й має бути залогінений (`codex login`).
-  Транскрибує НЕ він, а Deepgram (`transcribe.py`)
+  Транскрибує НЕ він, а Deepgram (`content_kb/transcribe.py`)
 
-yt-dlp уже в requirements.txt (через pip), не потрібен окремий інсталл.
+yt-dlp уже в pyproject.toml (через pip), не потрібен окремий інсталл.
 
 ## 2. `.env` — те, що спільне для всіх
 
@@ -56,7 +56,7 @@ yt-dlp уже в requirements.txt (через pip), не потрібен окр
 - `GPROXY_COUNTRY` — країна для проксі (за замовчуванням `"VN"`)
 - `IG_USERNAME` — для ig_session_guardian автологіну (опційно)
 - `IG_PASSWORD` — для ig_session_guardian автологіну (опційно)
-- `TENANTS_FILE` — шлях до `tenants.json` (за замовчуванням поруч із кодом)
+- `TENANTS_FILE` — шлях до `tenants.json` (за замовчуванням — корінь проєкту)
 
 **`KB_LANGUAGE` і `KB_TAGS` став ДО `setup_notion.py`** — саме з них будується схема бази.
 Змінити пізніше можна, але старі записи лишаться зі старими мітками, а select-колонки
@@ -66,7 +66,7 @@ yt-dlp уже в requirements.txt (через pip), не потрібен окр
 
 ## 3. `tenants.json` — хто в яку базу пише
 
-Лежить поруч із кодом, у git не їде. Приклад — `tenants.example.json`:
+Лежить у корені проєкту, у git не їде. Приклад — `tenants.example.json`:
 
 ```json
 [
@@ -118,25 +118,25 @@ Notion перейменував integrations → connections; стара адр�
 
 Далі я:
 ```
-python setup_notion.py <лінк на сторінку> env:KENT_NOTION_TOKEN
+python tools/setup_notion.py <лінк на сторінку> env:KENT_NOTION_TOKEN
 ```
 — створює базу з готовою схемою і друкує блок для `tenants.json`.
 
-**Якщо база вже створена вручну**: `setup_notion.py` не потрібен, впиши id у
+**Якщо база вже створена вручну**: `tools/setup_notion.py` не потрібен, впиши id у
 `tenants.json`. Але колонки доводиться додавати через нову версію API: бази,
 створені в Notion після 2025-09-03, тримають схему в *data source*, і
 `PATCH /v1/databases/<id>` зі старою версією API мовчки нічого не змінює
 (200 OK, схема та сама).
 
-Клієнт запінено на `Notion-Version: 2022-06-28` (`notion_store.py`,
-`setup_notion.py`) — створення сторінок із `parent: database_id` на ній
+Клієнт запінено на `Notion-Version: 2022-06-28` (`content_kb/notion_store.py`,
+`tools/setup_notion.py`) — створення сторінок із `parent: database_id` на ній
 працює й перевірене живим записом.
 
 ## 5. Перевірка перед тим, як віддавати бота людині
 
 ```
-python doctor.py                # усі тенанти
-python doctor.py kent --probe   # + створити тестову сторінку і заархівувати
+python tools/doctor.py                # усі тенанти
+python tools/doctor.py kent --probe   # + створити тестову сторінку і заархівувати
 ```
 Ловить рівно те, на чому спотикається кожен новий власник: не той токен,
 не додана інтеграція в Connections, брак колонок у базі, мертва Instagram-сесія.
@@ -144,7 +144,7 @@ python doctor.py kent --probe   # + створити тестову сторін
 ## 6. Кодекс (Codex CLI)
 
 На сервері має бути залогінений `codex` (`codex login`). Перед першим запуском
-звірити `codex --help` — `ai_engine.py` викликає `codex exec` у неінтерактивному
+звірити `codex --help` — `content_kb/ai_engine.py` викликає `codex exec` у неінтерактивному
 режимі.
 
 ## 7. Instagram-сесія: автопідтримка
@@ -158,7 +158,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now ig-session-guardian.timer
 ```
 
-Служба `ig_session_guardian.py`:
+Служба `tools/ig_session_guardian.py`:
 - Відкриває браузер, заходить у Instagram через UI (навіть якщо потрібна 2FA)
 - Витягує куки й записує в `IG_COOKIES_FILE`
 - Може автоматично ротувати проксі через GProxy (якщо `GPROXY_API_KEY` заданий)
@@ -180,7 +180,7 @@ sudo systemctl enable --now ig-session-guardian.timer
 
 Тест:
 ```
-python bot.py
+python -m content_kb.bot
 ```
 Постійна робота (systemd) — юніт лежить у `deploy/`. Під свій хост поправ у ньому
 `User=` і `WorkingDirectory=`:

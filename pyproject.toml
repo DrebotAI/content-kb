@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "content-kb"
+version = "0.1.0"
+description = "Telegram bot that turns saved Instagram, TikTok and voice content into AI-evaluated Notion knowledge-base entries"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "python-telegram-bot[job-queue]>=21.0,<23",
+    # >=7.0: transcribe.py uses the v7 client surface (listen.v1.media.transcribe_file).
+    # Older 3.x-6.x releases use a different API shape and are not supported here.
+    "deepgram-sdk>=7.0,<8",
+    "notion-client>=2.0,<4",
+    # The [default] extra deliberately excludes curl_cffi: TikTok webpage rehydration
+    # breaks with curl_cffi 0.15.0. Keep the extra as-is rather than pinning a version.
+    # Newer is generally better here — IG/TikTok extractors rot fast.
+    "yt-dlp[default]>=2026.7.4",
+    "python-dotenv>=1.0",
+    "httpx",
+    "playwright>=1.47,<2",
+]
+
+[tool.setuptools]
+packages = ["content_kb"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

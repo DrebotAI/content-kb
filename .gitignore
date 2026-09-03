@@ -15,6 +15,7 @@ downloads/
 *.bak*
 venv/
 .venv/
+*.egg-info/
 
 # debug artifacts
 ig-login-*.png

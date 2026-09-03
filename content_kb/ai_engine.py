@@ -162,7 +162,9 @@ tools that nonetheless yields a strong counter-thesis) or 🔥 value + 👍 cont
 }
 _CRITERIA = _CRITERIA_BY_LANG[_PROMPT_LANG]
 
-CONTEXT_FILE = Path(__file__).with_name("context.md")
+# project root, one level above the content_kb package: context.md is a
+# per-owner config file that lives next to the repo, not inside the package
+CONTEXT_FILE = Path(__file__).resolve().parents[1] / "context.md"
 
 # коли контекст-файл тенанта не знайдено: краще чесно оцінювати без профілю,
 # ніж міряти його контент чужими цілями

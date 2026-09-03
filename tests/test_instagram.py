@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import instagram
-from instagram import (InstagramSessionInvalid, NoAudio, _apply_ydl_proxy, _entries, _meta, _purge_old,
-                       _story_json, profile_to_stories, source_from_url, story_media_plan)
+from content_kb import instagram
+from content_kb.instagram import (InstagramSessionInvalid, NoAudio, _apply_ydl_proxy, _entries, _meta, _purge_old,
+                                  _story_json, profile_to_stories, source_from_url, story_media_plan)
 
 
 def test_bare_profile_becomes_stories_url():
