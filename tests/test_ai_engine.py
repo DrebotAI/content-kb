@@ -8,16 +8,27 @@ from content_kb import ai_engine
 from content_kb.ai_engine import CODEX_MODEL, _codex_argv, _extract_json, _normalize, profile
 
 
+# Every setting ai_engine reads at import. _reloaded clears the ones a test does not name,
+# so the suite cannot inherit a deployment's .env: tests/test_bot.py imports content_kb.bot,
+# which calls load_dotenv() while pytest is still collecting, long before any test runs.
+_KB_SETTINGS = ("KB_LANGUAGE", "KB_TAGS", "KB_FORMATS")
+
+
 @contextlib.contextmanager
 def _reloaded(**env):
-    """Reloads ai_engine under a temporary environment and puts everything back.
+    """Reloads ai_engine under a known environment and puts everything back.
 
     LANGUAGE/VALUES/... are read at module import, so KB_LANGUAGE can only be switched
     through a reload. The environment is restored and reloaded once more at the end —
     otherwise the rest of the test run would be stuck in someone else's language.
+
+    A setting not named in `env` is cleared rather than left alone, so every test starts
+    from the shipped defaults no matter what the host has configured.
     """
-    old = {k: os.environ.get(k) for k in env}
-    for k, v in env.items():
+    keys = set(_KB_SETTINGS) | set(env)
+    old = {k: os.environ.get(k) for k in keys}
+    for k in keys:
+        v = env.get(k)
         if v is None:
             os.environ.pop(k, None)
         else:
@@ -160,8 +171,24 @@ def test_normalize_empty_title_becomes_placeholder():
 
 
 def test_default_language_is_en():
-    assert ai_engine.LANGUAGE == "en"
-    assert ai_engine.VALUES == ("🔥 Must-know", "👍 Useful", "📎 Reference")
+    # through _reloaded, not the module-level import: that one sees whatever .env the host
+    # has, and this assertion only ever passed because of pytest's collection order
+    with _reloaded() as mod:
+        assert mod.LANGUAGE == "en"
+        assert mod.VALUES == ("🔥 Must-know", "👍 Useful", "📎 Reference")
+        assert mod.TAGS == ("content idea", "product/course", "delivery", "sales", "lead gen")
+
+
+def test_the_suite_ignores_a_deployment_env(monkeypatch):
+    """Prod sets KB_LANGUAGE and KB_TAGS in .env, and load_dotenv() runs during collection.
+    A test that names neither must still see the shipped defaults."""
+    monkeypatch.setenv("KB_LANGUAGE", "uk")
+    monkeypatch.setenv("KB_TAGS", "делегування, позиціонування")
+    monkeypatch.setenv("KB_FORMATS", "Threads post")
+    with _reloaded() as mod:
+        assert mod.LANGUAGE == "en"
+        assert mod.TAGS == ("content idea", "product/course", "delivery", "sales", "lead gen")
+        assert mod.FORMATS[-1] == "not for content"
 
 
 def test_kb_language_en_switches_labels_tags_and_prompt():
