@@ -13,7 +13,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-# профіль браузера — всередині WorkingDirectory: ProtectHome=read-only не пустить у ~/.cache
+# browser profile inside WorkingDirectory: ProtectHome=read-only blocks ~/.cache
 Environment=IG_BROWSER_PROFILE=/opt/content-kb/ig-browser-profile
 ReadWritePaths=/opt/content-kb
 
