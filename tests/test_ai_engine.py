@@ -257,6 +257,31 @@ def test_kb_tags_overrides_in_en_mode_too():
         assert mod.TAGS == ("x", "y")
 
 
+def test_threads_is_an_offerable_format():
+    """The model can only answer with a value from FORMATS, so a channel missing from the
+    list is a channel it can never recommend."""
+    assert "Threads post" in ai_engine.FORMATS
+    with _reloaded(KB_LANGUAGE="uk") as mod:
+        assert "Threads post" in mod.FORMATS
+
+
+def test_kb_formats_overrides_default_list():
+    with _reloaded(KB_FORMATS=" Reel , newsletter ,, not for content ") as mod:
+        assert mod.FORMATS == ("Reel", "newsletter", "not for content")
+
+
+def test_kb_formats_blank_falls_back_to_language_default():
+    with _reloaded(KB_FORMATS="  , , ") as mod:
+        assert mod.FORMATS[0] == "Reel" and mod.FORMATS[-1] == "not for content"
+
+
+def test_normalize_rejects_a_format_outside_the_override():
+    """recommended_format is a Notion select: a value outside the list would be a 400."""
+    with _reloaded(KB_FORMATS="Reel, newsletter") as mod:
+        assert mod._normalize({"recommended_format": "carousel"})["recommended_format"] == ""
+        assert mod._normalize({"recommended_format": "newsletter"})["recommended_format"] == "newsletter"
+
+
 def test_normalize_still_rejects_out_of_set_value_in_en_mode():
     with _reloaded(KB_LANGUAGE="en") as mod:
         result = mod._normalize({"value": "junk", "content_potential": "no such thing"})
@@ -276,6 +301,26 @@ def test_setup_notion_schema_matches_ai_engine_tuples():
     assert names(setup_notion.SCHEMA["Content Potential"]["select"]) == list(ai_engine.POTENTIALS)
     assert names(setup_notion.SCHEMA["Recommended Format"]["select"]) == list(ai_engine.FORMATS)
     assert names(setup_notion.SCHEMA["Tags"]["multi_select"]) == list(ai_engine.TAGS)
+
+
+def test_analyze_prompt_offers_exactly_the_configured_formats():
+    """The schema and the prompt must list the same options — otherwise the model returns a
+    value the Notion select does not have."""
+    with _reloaded(KB_FORMATS="Reel, newsletter", KB_TAGS="research, hiring") as mod:
+        captured = {}
+
+        def fake_run_codex(prompt, images=None):
+            captured["prompt"] = prompt
+            return '{"title": "T"}'
+
+        mod._run_codex = fake_run_codex
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "context.md"
+            path.write_text("owner profile")
+            mod.analyze("some content", "http://x", profile_path=path)
+        assert "['Reel', 'newsletter']" in captured["prompt"]
+        assert "['research', 'hiring']" in captured["prompt"]
+        assert "carousel" not in captured["prompt"]
 
 
 if __name__ == "__main__":

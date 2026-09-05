@@ -79,11 +79,11 @@ _POTENTIALS_BY_LANG = {
 }
 _FORMATS_BY_LANG = {
     "uk": ("Reel", "talking-head Reel", "screen recording", "carousel",
-           "Telegram post", "story sequence", "technical breakdown", "case study",
-           "не для контенту"),
+           "Telegram post", "Threads post", "story sequence", "technical breakdown",
+           "case study", "не для контенту"),
     "en": ("Reel", "talking-head Reel", "screen recording", "carousel",
-           "Telegram post", "story sequence", "technical breakdown", "case study",
-           "not for content"),
+           "Telegram post", "Threads post", "story sequence", "technical breakdown",
+           "case study", "not for content"),
 }
 _TAGS_BY_LANG = {
     "uk": ("контент-ідея", "продукт/курс", "делівері", "продажі", "лідген"),
@@ -92,18 +92,17 @@ _TAGS_BY_LANG = {
 
 VALUES: tuple = _VALUES_BY_LANG[LABEL_LANG]
 POTENTIALS: tuple = _POTENTIALS_BY_LANG[LABEL_LANG]
-FORMATS: tuple = _FORMATS_BY_LANG[LABEL_LANG]
 
 
-def _tags_from_env(lang: str) -> tuple:
-    # KB_TAGS wins in any language; empty/whitespace entries are dropped, and if
+def _from_env(var: str, default: tuple) -> tuple:
+    # the override wins in any language; empty/whitespace entries are dropped, and if
     # nothing survives that, fall back quietly to the language default
-    raw = os.getenv("KB_TAGS") or ""
-    custom = tuple(t.strip() for t in raw.split(",") if t.strip())
-    return custom or _TAGS_BY_LANG[lang]
+    custom = tuple(t.strip() for t in (os.getenv(var) or "").split(",") if t.strip())
+    return custom or default
 
 
-TAGS: tuple = _tags_from_env(LABEL_LANG)
+TAGS: tuple = _from_env("KB_TAGS", _TAGS_BY_LANG[LABEL_LANG])
+FORMATS: tuple = _from_env("KB_FORMATS", _FORMATS_BY_LANG[LABEL_LANG])
 
 # The two scales are deliberately separate. There used to be one, phrased around "this
 # week" and "the active deal" — and the whole library measured itself against a single

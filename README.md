@@ -30,7 +30,8 @@ For each piece of content, the bot:
      - **Value** (Must-know / Useful / Reference) — learning & work value
      - **Content Potential** (Strong angle / Adaptable / Weak) — repackageable into creator's own content
    - Hook (the first line of a Reel)
-   - Content angle and recommended format (Reel, carousel, case study, etc.)
+   - Content angle and recommended format (Reel, carousel, Threads post, case study, etc. —
+     the list is replaceable via `KB_FORMATS`)
    - Adaptation steps to turn it into original content
 5. **Saves to Notion** as a rich page with:
    - All metadata as queryable properties (Name, Source, Value, Tags, Creator, Content Angle, Hook, Recommended Format, etc.)
@@ -231,7 +232,7 @@ They need no network access and no API keys.
 This bot assumes the user is a content creator building a learning library. To adapt it to a different use case, there are three places to customize, in order:
 
 1. **`context.md`** — your profile. The AI reads this on every analysis to decide what scores as valuable to you. Without it, everything defaults to reference material. This is the single biggest lever on scoring quality.
-2. **`KB_LANGUAGE` and `KB_TAGS`** — output language and tag vocabulary. Set these before running `tools/setup_notion.py` to create the database; changing them later breaks the label enum.
+2. **`KB_LANGUAGE`, `KB_TAGS` and `KB_FORMATS`** — output language, tag vocabulary and the list of formats the model may recommend. Set these before running `tools/setup_notion.py` to create the database; changing them later leaves the select columns holding both the old and the new set.
 3. **`content_kb/ai_engine.py`** — the scoring scales, criteria text, and repackaging rules live in one file. If your use case is not "building a learning library," rewrite the prompt in that file; it is the only place you need to touch to swap scoring logic or output format.
 
 ## Deployment

@@ -46,6 +46,11 @@ yt-dlp is already in pyproject.toml (via pip); no separate install needed.
   stay English in that case)
 - `KB_TAGS` — your own comma-separated tag vocabulary, e.g. `"research, hiring, competitors"`
   (default: content idea, product/course, delivery, sales, lead gen)
+- `KB_FORMATS` — your own comma-separated "Recommended Format" vocabulary, e.g.
+  `"Reel, newsletter, conference talk, not for content"`. Set it if you publish somewhere
+  the default list does not cover; the model can only answer with a value from this list
+  (default: Reel, talking-head Reel, screen recording, carousel, Telegram post,
+  Threads post, story sequence, technical breakdown, case study, not for content)
 - `CODEX_BIN` — path to `codex` if it is not on `$PATH` (default `"codex"`)
 - `CODEX_MODEL` — the model used for post analysis (default `"gpt-5.6-sol"`)
 - `CODEX_REASONING` — Codex reasoning effort (default `"medium"`)
@@ -61,13 +66,13 @@ yt-dlp is already in pyproject.toml (via pip); no separate install needed.
 - `IG_USERNAME` — for ig_session_guardian auto-login (optional)
 - `IG_PASSWORD` — for ig_session_guardian auto-login (optional)
 - `TENANTS_FILE` — path to `tenants.json` (default: the project root)
-
-**Set `KB_LANGUAGE` and `KB_TAGS` BEFORE running `setup_notion.py`** — the database schema
-is built from them. You can change them later, but old entries keep their old labels and
-the select columns end up holding both sets.
 - `CONTEXT_FILE` — for the old single-user mode without `tenants.json` (default `"context.md"`)
 - `ALLOWED_USER_ID`, `NOTION_TOKEN`, `NOTION_DATABASE_ID`, `TENANT_NAME` — for the old mode
   without tenants.json
+
+**Set `KB_LANGUAGE`, `KB_TAGS` and `KB_FORMATS` BEFORE running `setup_notion.py`** — the
+database schema is built from them. You can change them later, but old entries keep their
+old labels and the select columns end up holding both sets.
 
 ## 3. `tenants.json` — who writes to which base
 
