@@ -15,7 +15,7 @@ def _fails(fn, *args, **kwargs) -> str:
         fn(*args, **kwargs)
     except ConfigError as exc:
         return str(exc)
-    raise AssertionError("мало впасти з ConfigError")
+    raise AssertionError("should have raised ConfigError")
 
 
 def test_id_from_plain_and_dashed():
@@ -26,14 +26,14 @@ def test_id_from_plain_and_dashed():
 
 
 def test_id_from_url_ignores_view_id():
-    """Головна пастка: у ?v=... лежить id вʼю, теж 32 hex. Взяли б його — 404."""
+    """The main trap: ?v=... holds the view id, also 32 hex. Take that one and you get a 404."""
     url = ("https://www.notion.so/workspace/Knowledge-Base-0123456789abcdef0123456789abcdef"
            "?v=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&pvs=4")
     assert database_id(url) == "01234567-89ab-cdef-0123-456789abcdef"
 
 
 def test_id_survives_hex_letters_in_the_slug():
-    """«...Base-<id>» без дефісів злипається в 'e'+id — рівно-32 з межами тут промахувалось."""
+    """«...Base-<id>» without hyphens fuses into 'e'+id — an exactly-32 match missed here."""
     assert database_id("https://notion.so/Deadbeef-Cafe-0123456789abcdef0123456789abcdef") \
         == "01234567-89ab-cdef-0123-456789abcdef"
     assert database_id("https://www.notion.so/workspace/0123456789abcdef0123456789abcdef/") \
@@ -41,11 +41,11 @@ def test_id_survives_hex_letters_in_the_slug():
 
 
 def test_id_too_short_is_rejected():
-    assert "id бази" in _fails(database_id, "0123456789abcdef0123456789abcde")  # 31 hex
+    assert "database id" in _fails(database_id, "0123456789abcdef0123456789abcde")  # 31 hex
 
 
 def test_id_garbage_is_loud():
-    assert "id бази" in _fails(database_id, "https://notion.so/my-page")
+    assert "database id" in _fails(database_id, "https://notion.so/my-page")
 
 
 def test_env_secret_resolved():
@@ -61,7 +61,7 @@ def test_env_secret_missing_names_the_var():
 
 def test_duplicate_telegram_id_rejected():
     msg = _fails(parse, [OK, dict(OK, name="owner")])
-    assert "двічі" in msg  # мовчазний перезапис = один із двох просто не отримує нічого
+    assert "twice" in msg  # a silent overwrite = one of the two simply gets nothing
 
 
 def test_missing_field_names_it():
@@ -69,7 +69,7 @@ def test_missing_field_names_it():
 
 
 def test_telegram_id_must_be_number():
-    assert "числ" in _fails(parse, [dict(OK, telegram_id="@kent")])
+    assert "must be a number" in _fails(parse, [dict(OK, telegram_id="@kent")])
 
 
 def test_two_tenants_two_bases():
@@ -98,7 +98,7 @@ def test_file_config_beats_env(tmp_path=None):
         tenants.CONFIG_FILE, tenants._cache = path, None
         try:
             assert tenants.get(42).name == "kent"
-            assert tenants.get(999) is None  # чужий — бот мовчить
+            assert tenants.get(999) is None  # a stranger — the bot stays silent
         finally:
             tenants.CONFIG_FILE = tenants._HERE / "tenants.json"
             tenants._cache = None

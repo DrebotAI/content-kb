@@ -1,12 +1,12 @@
-"""Одноразово, на кожного власника бази:
+"""Run once per database owner:
 
-    python tools/setup_notion.py <сторінка: id або URL> [notion_token | env:VAR]
+    python tools/setup_notion.py <page: id or URL> [notion_token | env:VAR]
 
-Створює в його воркспейсі базу "Knowledge Base" з потрібною схемою і друкує
-готовий блок для tenants.json.
+Creates a "Knowledge Base" database with the required schema in that person's
+workspace and prints a ready-made block for tenants.json.
 
-Токен другим аргументом — саме тому, що для нового тенанта потрібен ЙОГО токен:
-база має лежати в його Notion, а не в моєму.
+The token is the second argument precisely because a new tenant needs THEIR token:
+the database has to live in their Notion, not in yours.
 """
 import json
 import os
@@ -19,9 +19,9 @@ load_dotenv()
 from notion_client import Client
 
 from content_kb import tenants
-# лейбли й теги живуть в ai_engine — це те саме джерело правди, що формує промпт
-# для моделі; дублювати рядки тут означає, що KB_LANGUAGE/KB_TAGS одного дня
-# розійдуться зі схемою бази, і select-колонка мовчки перестане приймати значення
+# labels and tags live in ai_engine — the same source of truth that builds the model's
+# prompt; duplicating the strings here would mean KB_LANGUAGE/KB_TAGS drifting away from
+# the database schema one day, and a select column silently refusing values
 from content_kb.ai_engine import FORMATS, POTENTIALS, TAGS, VALUES
 
 SCHEMA = {
@@ -37,7 +37,7 @@ SCHEMA = {
         {"name": VALUES[1], "color": "green"},
         {"name": VALUES[2], "color": "gray"},
     ]}},
-    # друга шкала, незалежна від Value: банальне може мати сильний кут, і навпаки
+    # the second scale, independent of Value: the mundane can carry a strong angle, and vice versa
     "Content Potential": {"select": {"options": [
         {"name": POTENTIALS[0], "color": "red"},
         {"name": POTENTIALS[1], "color": "green"},
@@ -47,7 +47,7 @@ SCHEMA = {
     "Hook": {"rich_text": {}},
     "Recommended Format": {"select": {"options": [{"name": n} for n in FORMATS]}},
     "Why useful": {"rich_text": {}},
-    "Transcript": {"rich_text": {}},  # шукабельна копія тіла: пошук по блоках не працює
+    "Transcript": {"rich_text": {}},  # a searchable copy of the body: block search does not work
     "Created": {"created_time": {}},
 }
 
@@ -58,24 +58,24 @@ def _token(argv: list) -> str:
         return os.environ[raw[4:]] if raw.startswith("env:") else raw
     token = os.getenv("NOTION_TOKEN")
     if not token:
-        sys.exit("Немає токена: передай другим аргументом або постав NOTION_TOKEN у .env")
+        sys.exit("No token: pass it as the second argument or set NOTION_TOKEN in .env")
     return token
 
 
 def main() -> None:
     if len(sys.argv) not in (2, 3):
-        sys.exit("Використання: python tools/setup_notion.py <сторінка: id або URL> [notion_token]")
-    # той самий парсер, що й у конфігу: приймає і голий id, і скопійований URL
+        sys.exit("Usage: python tools/setup_notion.py <page: id or URL> [notion_token]")
+    # the same parser the config uses: accepts a bare id as well as a copied URL
     page_id = tenants.database_id(sys.argv[1])
-    # ponytail: та сама стара версія API, що й у notion_store
+    # ponytail: the same old API version notion_store pins
     notion = Client(auth=_token(sys.argv), notion_version="2022-06-28")
     db = notion.databases.create(
         parent={"type": "page_id", "page_id": page_id},
         title=[{"type": "text", "text": {"content": "Knowledge Base"}}],
         properties=SCHEMA,
     )
-    print("Готово:", db["url"])
-    print("\nБлок для tenants.json (впиши name, telegram_id і свій env: для токена):\n")
+    print("Done:", db["url"])
+    print("\nBlock for tenants.json (fill in name, telegram_id and your own env: for the token):\n")
     print(json.dumps({
         "name": "kent",
         "telegram_id": 0,

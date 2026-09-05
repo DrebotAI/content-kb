@@ -13,25 +13,25 @@ def _response(*transcripts):
 
 
 def test_returns_transcript():
-    assert _transcript_from(_response("  привіт світ  ")) == "привіт світ"
+    assert _transcript_from(_response("  hello world  ")) == "hello world"
 
 
 def test_no_channels_raises():
     try:
         _transcript_from(_response())
     except RuntimeError as e:
-        assert "аудіодоріжки" in str(e)
+        assert "no audio track" in str(e)
     else:
-        raise AssertionError("мало впасти на файлі без аудіо")
+        raise AssertionError("should have failed on a file with no audio")
 
 
 def test_empty_transcript_raises():
     try:
         _transcript_from(_response("   "))
     except RuntimeError as e:
-        assert "мовлення" in str(e)
+        assert "no recognisable speech" in str(e)
     else:
-        raise AssertionError("мало впасти на тиші")
+        raise AssertionError("should have failed on silence")
 
 
 if __name__ == "__main__":

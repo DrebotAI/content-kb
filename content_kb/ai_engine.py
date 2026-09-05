@@ -10,13 +10,14 @@ logger = logging.getLogger(__name__)
 CODEX_BIN = os.getenv("CODEX_BIN", "codex")
 CODEX_MODEL = os.getenv("CODEX_MODEL", "gpt-5.6-sol")
 CODEX_REASONING = os.getenv("CODEX_REASONING", "medium")
-# дайджест із пачки сторіз довший за одиничний аналіз — 180 с на нього не вистачає
+# a digest of a story batch runs longer than a single analysis — 180 s is not enough
 CODEX_TIMEOUT_SECONDS = int(os.getenv("CODEX_TIMEOUT_SECONDS", "300"))
 
 
 def _codex_argv(out_path: str, model: str | None, images: list | None = None) -> list:
-    # промпт іде в stdin (аргумент "-"): у Linux один argv ріжеться на 128 КБ,
-    # а кирилиця по 2 байти — година подкасту впала б з E2BIG
+    # the prompt goes in on stdin (the "-" argument): on Linux a single argv is capped
+    # at 128 KB, and non-ASCII text costs 2 bytes a character — an hour of podcast would
+    # have died with E2BIG
     argv = [CODEX_BIN, "exec", "--skip-git-repo-check", "-s", "read-only", "-o", out_path]
     if model:
         argv += ["-m", model, "-c", f'model_reasoning_effort="{CODEX_REASONING}"']
@@ -29,8 +30,8 @@ def _run_codex(prompt: str, images: list | None = None) -> str:
     with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
         out_path = tmp.name
     try:
-        # другий захід — без -m: якщо CLI оновиться і перестане знати нашу модель,
-        # бот виживе на дефолтній. Заразом покриває транзієнтні падіння.
+        # second attempt without -m: if the CLI updates and stops recognising our model,
+        # the bot survives on the default one. It also covers transient failures.
         errors = []
         for model in (CODEX_MODEL, None):
             try:
@@ -42,35 +43,36 @@ def _run_codex(prompt: str, images: list | None = None) -> str:
                     timeout=CODEX_TIMEOUT_SECONDS,
                 )
             except subprocess.TimeoutExpired:
-                errors.append(f"модель {model or 'дефолтна'}: таймаут {CODEX_TIMEOUT_SECONDS} с")
+                errors.append(f"model {model or 'default'}: timed out after {CODEX_TIMEOUT_SECONDS} s")
                 continue
             if result.returncode == 0:
                 return Path(out_path).read_text().strip()
-            errors.append(f"модель {model or 'дефолтна'}: {result.stderr.strip()[:200]}")
-        raise RuntimeError("codex exec не спрацював — " + "; ".join(errors))
+            errors.append(f"model {model or 'default'}: {result.stderr.strip()[:200]}")
+        raise RuntimeError("codex exec did not succeed — " + "; ".join(errors))
     finally:
         os.unlink(out_path)
 
 
-LANGUAGE = (os.getenv("KB_LANGUAGE") or "uk").strip().lower()
+LANGUAGE = (os.getenv("KB_LANGUAGE") or "en").strip().lower()
 if LANGUAGE not in ("uk", "en", "auto"):
-    logger.warning("невідома KB_LANGUAGE=%r, використовую uk", LANGUAGE)
-    LANGUAGE = "uk"
+    logger.warning("unknown KB_LANGUAGE=%r, falling back to en", LANGUAGE)
+    LANGUAGE = "en"
 
-# лейбли й теги — це enum-значення, що лежать у select-колонках Notion: у режимі
-# auto контент може бути будь-якою мовою, але сама схема бази — одна на весь час
-# життя тенанта, тож для auto лейбли фіксуємо українською (як і в uk-режимі).
-_LABEL_LANG = "uk" if LANGUAGE == "auto" else LANGUAGE
-# для промптів-інструкцій те саме: auto веде розмову українською (модель однаково
-# розуміє мультимовні інструкції), тільки явний en перемикає й текст промпту.
-_PROMPT_LANG = "en" if LANGUAGE == "en" else "uk"
+# labels and tags are enum values living in Notion select columns: under auto the
+# content can be in any language, but the database schema is fixed for the lifetime of
+# a tenant, so under auto the labels are pinned to English (as they are under en).
+LABEL_LANG = "en" if LANGUAGE == "auto" else LANGUAGE
+# same for the instruction prompts: auto talks to the model in English (the model
+# understands multilingual instructions either way); only an explicit uk switches the
+# prompt text itself.
+_PROMPT_LANG = "uk" if LANGUAGE == "uk" else "en"
 
 _VALUES_BY_LANG = {
     "uk": ("🔥 Must-know", "👍 Корисно", "📎 Довідково"),
     "en": ("🔥 Must-know", "👍 Useful", "📎 Reference"),
 }
-# друга, незалежна шкала: банальний для власника матеріал може мати сильний кут,
-# а глибокий технічний розбір — не лягати в контент узагалі
+# the second, independent scale: material that is mundane to the owner can still carry a
+# strong angle, while a deep technical breakdown may not fit into content at all
 _POTENTIALS_BY_LANG = {
     "uk": ("🔥 Strong angle", "👍 Adaptable", "📎 Weak"),
     "en": ("🔥 Strong angle", "👍 Adaptable", "📎 Weak"),
@@ -88,24 +90,25 @@ _TAGS_BY_LANG = {
     "en": ("content idea", "product/course", "delivery", "sales", "lead gen"),
 }
 
-VALUES: tuple = _VALUES_BY_LANG[_LABEL_LANG]
-POTENTIALS: tuple = _POTENTIALS_BY_LANG[_LABEL_LANG]
-FORMATS: tuple = _FORMATS_BY_LANG[_LABEL_LANG]
+VALUES: tuple = _VALUES_BY_LANG[LABEL_LANG]
+POTENTIALS: tuple = _POTENTIALS_BY_LANG[LABEL_LANG]
+FORMATS: tuple = _FORMATS_BY_LANG[LABEL_LANG]
 
 
 def _tags_from_env(lang: str) -> tuple:
-    # KB_TAGS перемагає в будь-якій мові; порожні/пробільні елементи відкидаємо,
-    # а якщо після цього нічого не лишилось — тихо падаємо назад на дефолт мови
+    # KB_TAGS wins in any language; empty/whitespace entries are dropped, and if
+    # nothing survives that, fall back quietly to the language default
     raw = os.getenv("KB_TAGS") or ""
     custom = tuple(t.strip() for t in raw.split(",") if t.strip())
     return custom or _TAGS_BY_LANG[lang]
 
 
-TAGS: tuple = _tags_from_env(_LABEL_LANG)
+TAGS: tuple = _tags_from_env(LABEL_LANG)
 
-# Дві шкали навмисно розведені. Раніше була одна, зі словами «цього тижня» й «активного
-# деала» — і вся бібліотека міряла себе по одному поточному проєкту: банальний матеріал
-# із сильним хуком тонув у 📎, а глибокий технічний розбір без кута ліз у 🔥.
+# The two scales are deliberately separate. There used to be one, phrased around "this
+# week" and "the active deal" — and the whole library measured itself against a single
+# current project: mundane material with a strong hook drowned in 📎, while a deep
+# technical breakdown with no angle climbed to 🔥.
 _CRITERIA_BY_LANG = {
     "uk": """Дві НЕЗАЛЕЖНІ оцінки. Не змішуй їх і не підганяй одну під одну.
 
@@ -166,8 +169,8 @@ _CRITERIA = _CRITERIA_BY_LANG[_PROMPT_LANG]
 # per-owner config file that lives next to the repo, not inside the package
 CONTEXT_FILE = Path(__file__).resolve().parents[1] / "context.md"
 
-# коли контекст-файл тенанта не знайдено: краще чесно оцінювати без профілю,
-# ніж міряти його контент чужими цілями
+# when a tenant's context file is missing: better to rate honestly without a profile
+# than to measure their content against somebody else's goals
 _NO_PROFILE_BY_LANG = {
     "uk": """Власник цієї бази не лишив опису себе й своїх цілей.
 Прив'язки до конкретного проєкту не вигадуй: у why_useful так і напиши,
@@ -180,23 +183,24 @@ own regardless.""",
 }
 _NO_PROFILE = _NO_PROFILE_BY_LANG[_PROMPT_LANG]
 
-# інструкція про мову полів у самому JSON-промпті — три варіанти: uk і auto
-# говорять з моделлю українською (та й формулювання самого промпту українською),
-# en перемикає і промпт, і вимогу на англійську.
+# the field-language instruction inside the JSON prompt itself — three variants: en and
+# auto talk to the model in English (as does the wording of the prompt), an explicit uk
+# switches both the prompt and the requirement to Ukrainian.
 _LANG_INSTRUCTION_BY_LANG = {
     "uk": "Мова всіх полів — українська, включно з content_angle і hook.",
     "en": "The language of every field is English, including content_angle and hook.",
-    "auto": "Мова полів — така сама, як мова контенту, включно з content_angle і hook.",
+    "auto": "The language of the fields matches the language of the content, "
+            "including content_angle and hook.",
 }
 _LANG_INSTRUCTION = _LANG_INSTRUCTION_BY_LANG[LANGUAGE]
 
 
 def profile(path=None) -> str:
-    """Читається на кожен аналіз: правка контекст-файла діє одразу, без рестарту.
+    """Read on every analysis: an edit to the context file takes effect at once, no restart.
 
-    Профілю нема — оцінюємо без нього. Вшита копія чийогось профілю була б гірша
-    за її відсутність: чужий контент мірявся б чужими деалами, і все осмислене
-    тихо ставало б 📎 Довідково.
+    No profile means we rate without one. A hardcoded copy of somebody's profile would be
+    worse than none at all: the content would be measured against a stranger's deals, and
+    everything meaningful would quietly become 📎 Reference.
     """
     path = Path(path) if path else CONTEXT_FILE
     try:
@@ -204,7 +208,7 @@ def profile(path=None) -> str:
     except OSError:
         text = ""
     if not text:
-        logger.warning("немає профілю %s — оцінюю без контексту власника", path)
+        logger.warning("no profile at %s — rating without the owner's context", path)
         return _NO_PROFILE
     return text
 
@@ -304,20 +308,20 @@ def analyze(content: str, link: str, profile_path=None) -> dict:
 
 def _normalize(data: dict) -> dict:
     return {
-        "title": str(data.get("title") or "")[:200] or "Без назви",
+        "title": str(data.get("title") or "")[:200] or "Untitled",
         "tldr": str(data.get("tldr") or ""),
         "summary": str(data.get("summary") or ""),
         "source_idea": str(data.get("source_idea") or ""),
         "key_ideas": [str(x) for x in data.get("key_ideas") or []],
         "practical": [str(x) for x in data.get("practical") or []],
         "learning_takeaway": str(data.get("learning_takeaway") or ""),
-        # теги — тільки з фіксованого списку, інакше multi-select засмітиться за місяць
+        # tags only from the fixed list, otherwise the multi-select is litter within a month
         "tags": [str(x) for x in (data.get("tags") or []) if str(x) in TAGS],
         "value": data["value"] if data.get("value") in VALUES else VALUES[-1],
         "content_potential": (data["content_potential"]
                               if data.get("content_potential") in POTENTIALS else POTENTIALS[-1]),
         "why_useful": str(data.get("why_useful") or ""),
-        # angle лишається ключем: те саме поле, тепер із власною колонкою в Notion
+        # angle stays the key: same field, now with a column of its own in Notion
         "angle": str(data.get("content_angle") or data.get("angle") or ""),
         "hook": str(data.get("hook") or ""),
         "adaptation": [str(x) for x in data.get("adaptation") or []],
@@ -351,7 +355,7 @@ _READ_IMAGE_CAPTION_BY_LANG = {
 
 
 def read_image(paths: list, caption: str = "") -> str:
-    """Скрін поста → текст. Далі йде тим самим шляхом, що й транскрипт голосової."""
+    """A post screenshot → text. From here it takes the same path as a voice transcript."""
     prompt = _READ_IMAGE_PROMPT_BY_LANG[_PROMPT_LANG]
     if caption:
         prompt += _READ_IMAGE_CAPTION_BY_LANG[_PROMPT_LANG].format(caption=caption)
@@ -386,5 +390,5 @@ def compile_digest(items: list) -> str:
 def _extract_json(raw: str) -> dict:
     start, end = raw.find("{"), raw.rfind("}")
     if start == -1 or end == -1:
-        raise ValueError(f"Codex не повернув JSON: {raw[:200]}")
+        raise ValueError(f"Codex did not return JSON: {raw[:200]}")
     return json.loads(raw[start : end + 1])

@@ -4,14 +4,14 @@ from content_kb import notion_store
 from content_kb.notion_store import _build_blocks, _build_properties, _retry
 from content_kb.tenants import Tenant
 
-notion_store.RETRY_BACKOFF_SECONDS = 0  # без реальних пауз у тестах
+notion_store.RETRY_BACKOFF_SECONDS = 0  # no real sleeping in the tests
 
 KENT = Tenant("kent", 42, "ntn_kent", "11111111-1111-1111-1111-111111111111")
 OWNER = Tenant("owner", 7, "ntn_owner", "22222222-2222-2222-2222-222222222222")
 
 
 class _Api(Exception):
-    """Схожа на notion_client.errors.HTTPResponseError — має .status."""
+    """Shaped like notion_client.errors.HTTPResponseError — it has .status."""
 
     def __init__(self, status):
         super().__init__(f"HTTP {status}")
@@ -28,7 +28,7 @@ def _http_error(status):
 
 
 class _FakeClient:
-    """Мінімальний двійник notion_client.Client — ловить, куди пішов запит."""
+    """A minimal double for notion_client.Client — records where the request went."""
 
     def __init__(self, calls, retrieve=None):
         self.calls = calls
@@ -79,7 +79,7 @@ def test_retry_gives_up_after_limit():
         _retry(always_down)
     except httpx.ConnectError:
         return
-    raise AssertionError("мало прокинути помилку після трьох спроб")
+    raise AssertionError("should have re-raised after three attempts")
 
 
 def test_bad_request_is_not_retried():
@@ -94,15 +94,15 @@ def test_bad_request_is_not_retried():
     try:
         _retry(bad_schema)
     except HTTPResponseError:
-        assert len(calls) == 1  # 400 повторювати безглуздо
+        assert len(calls) == 1  # retrying a 400 is pointless
         return
-    raise AssertionError("мало прокинути 400 одразу")
+    raise AssertionError("should have re-raised the 400 immediately")
 
 
 ANALYSIS = {
-    "title": "Тест", "tldr": "Суть одним реченням.", "summary": "Три речення.",
-    "key_ideas": ["ідея 1", "ідея 2"], "practical": ["інструмент X"],
-    "tags": ["AI", "no-code"], "value": "🔥 Must-know", "why_useful": "бо треба",
+    "title": "Test", "tldr": "The point in one sentence.", "summary": "Three sentences.",
+    "key_ideas": ["idea 1", "idea 2"], "practical": ["tool X"],
+    "tags": ["AI", "no-code"], "value": "🔥 Must-know", "why_useful": "because it matters",
     "angle": "",
 }
 
@@ -118,7 +118,8 @@ def test_each_tenant_writes_into_own_base():
 
 
 def test_dedup_query_is_scoped_to_tenant_base():
-    """Дубль шукається в базі власника: те, що кент уже зберіг, мене не стосується."""
+    """A duplicate is looked up in the owner's own base: what another owner saved is
+    none of our business."""
     calls = []
     _fake(KENT, calls)
     assert notion_store.find_by_link(KENT, "https://instagram.com/reel/1") is None
@@ -141,7 +142,7 @@ def test_missing_connection_reads_like_an_instruction():
 
 def test_bad_token_is_told_apart_from_missing_connection():
     _fake(KENT, [], retrieve=_http_error(401))
-    assert "токен" in notion_store.check_access(KENT)[0]
+    assert "token" in notion_store.check_access(KENT)[0]
 
 
 def test_missing_columns_are_listed_by_name():
@@ -152,8 +153,8 @@ def test_missing_columns_are_listed_by_name():
         "Creator": {"type": "select"},
     }})
     problems = notion_store.check_access(KENT)
-    assert any("Transcript" in p for p in problems)          # колонки нема
-    assert any("Tags" in p and "multi_select" in p for p in problems)  # тип не той
+    assert any("Transcript" in p for p in problems)          # the column is missing
+    assert any("Tags" in p and "multi_select" in p for p in problems)  # wrong type
 
 
 def test_healthy_base_has_no_complaints():
@@ -171,17 +172,17 @@ def test_probe_archives_what_it_created():
 
 
 def test_angle_adds_its_own_section():
-    with_angle = dict(ANALYSIS, angle="Чому клініки втрачають записи вночі")
+    with_angle = dict(ANALYSIS, angle="Why clinics lose bookings overnight")
     blocks = _build_blocks(with_angle, "")
     assert [b["type"] for b in blocks].count("heading_2") == 4
     head = next(b for b in blocks if b["type"] == "heading_2"
-                and "Кут" in b["heading_2"]["rich_text"][0]["text"]["content"])
+                and "Angle" in b["heading_2"]["rich_text"][0]["text"]["content"])
     assert head
 
 
 def test_properties_full():
-    props = _build_properties(ANALYSIS, "https://instagram.com/reel/1", "@author", "IG Reel", "текст")
-    assert props["Name"]["title"][0]["text"]["content"] == "Тест"
+    props = _build_properties(ANALYSIS, "https://instagram.com/reel/1", "@author", "IG Reel", "text")
+    assert props["Name"]["title"][0]["text"]["content"] == "Test"
     assert props["Link"]["url"] == "https://instagram.com/reel/1"
     assert props["Creator"]["select"]["name"] == "@author"
     assert props["Source"]["select"]["name"] == "IG Reel"
@@ -190,12 +191,13 @@ def test_properties_full():
 
 
 def test_content_fields_become_properties_not_just_blocks():
-    """37 готових кутів лежали лише в тілі сторінки — їх не відфільтрувати й не вивести списком."""
-    rich = dict(ANALYSIS, angle="Чому клініка втрачає записи вночі", hook="Красиві відповіді ще не все",
+    """37 ready-made angles lived only in the page body — not filterable, not listable."""
+    rich = dict(ANALYSIS, angle="Why a clinic loses bookings overnight",
+                hook="Pretty replies are not the whole story",
                 content_potential="🔥 Strong angle", recommended_format="carousel")
     props = _build_properties(rich, None, "", "IG Reel")
-    assert props["Content Angle"]["rich_text"][0]["text"]["content"].startswith("Чому клініка")
-    assert props["Hook"]["rich_text"][0]["text"]["content"] == "Красиві відповіді ще не все"
+    assert props["Content Angle"]["rich_text"][0]["text"]["content"].startswith("Why a clinic")
+    assert props["Hook"]["rich_text"][0]["text"]["content"] == "Pretty replies are not the whole story"
     assert props["Content Potential"]["select"]["name"] == "🔥 Strong angle"
     assert props["Recommended Format"]["select"]["name"] == "carousel"
 
@@ -211,25 +213,25 @@ def test_properties_omit_empty_link_and_creator():
 
 
 def test_transcript_property_chunked_and_capped():
-    props = _build_properties(ANALYSIS, None, "", "Voice", "т" * 4000)
+    props = _build_properties(ANALYSIS, None, "", "Voice", "x" * 4000)
     chunks = props["Transcript"]["rich_text"]
     assert len(chunks) == 3
     assert all(len(c["text"]["content"]) <= 2000 for c in chunks)
 
-    huge = _build_properties(ANALYSIS, None, "", "Voice", "т" * 200_000)
-    assert len(huge["Transcript"]["rich_text"]) == 45  # обрізається, а не падає
+    huge = _build_properties(ANALYSIS, None, "", "Voice", "x" * 200_000)
+    assert len(huge["Transcript"]["rich_text"]) == 45  # truncated rather than failing
 
 
 def test_blocks_order_and_toggle():
-    blocks = _build_blocks(ANALYSIS, "т" * 4000)
+    blocks = _build_blocks(ANALYSIS, "x" * 4000)
     assert blocks[0]["type"] == "callout"
-    assert blocks[0]["callout"]["rich_text"][0]["text"]["content"] == "Суть одним реченням."
+    assert blocks[0]["callout"]["rich_text"][0]["text"]["content"] == "The point in one sentence."
     types = [b["type"] for b in blocks]
     assert types.count("heading_2") == 3
     toggle = blocks[-1]
     assert toggle["type"] == "toggle"
     children = toggle["toggle"]["children"]
-    assert len(children) == 3  # 4000 символів / 1900 → 3 чанки
+    assert len(children) == 3  # 4000 characters / 1900 → 3 chunks
     assert all(c["type"] == "paragraph" for c in children)
 
 

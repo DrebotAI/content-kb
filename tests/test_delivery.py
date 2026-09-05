@@ -16,16 +16,16 @@ class FakeBot:
 
 def test_short_text_goes_as_monospace_with_escaping():
     bot = FakeBot()
-    asyncio.run(send_text_or_file(bot, 1, "код: a < b & c", "t.txt"))
+    asyncio.run(send_text_or_file(bot, 1, "code: a < b & c", "t.txt"))
     text, parse_mode = bot.messages[0]
-    assert text == "<pre>код: a &lt; b &amp; c</pre>"
+    assert text == "<pre>code: a &lt; b &amp; c</pre>"
     assert parse_mode == "HTML"
     assert not bot.documents
 
 
 def test_long_text_goes_as_file():
     bot = FakeBot()
-    asyncio.run(send_text_or_file(bot, 1, "т" * (MAX_MESSAGE_LEN + 1), "t.txt"))
+    asyncio.run(send_text_or_file(bot, 1, "x" * (MAX_MESSAGE_LEN + 1), "t.txt"))
     assert bot.documents == ["t.txt"] and not bot.messages
 
 

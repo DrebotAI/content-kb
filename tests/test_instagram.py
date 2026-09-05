@@ -111,7 +111,7 @@ def test_meta_takes_uploader_from_first_entry_of_playlist():
 
 
 def test_stories_creator_comes_from_url_not_numeric_id():
-    # yt-dlp для сторіз віддає числовий id — нік беремо з лінка
+    # for stories yt-dlp returns a numeric id — the handle comes from the link
     meta = _meta("https://www.instagram.com/stories/some_creator/", {"uploader_id": "1256089223"})
     assert meta == {"creator": "@some_creator", "source": "IG Story"}
 
@@ -128,17 +128,17 @@ def test_meta_prefixes_username():
 
 
 def test_reel_creator_prefers_channel_over_numeric_id_and_display_name():
-    # yt-dlp: channel=нік, uploader_id=число, uploader=відображуване ім'я
+    # yt-dlp: channel=handle, uploader_id=number, uploader=display name
     meta = _meta("https://instagram.com/reel/A/", {
         "channel": "ksyushafedorova", "uploader_id": "565100657",
-        "uploader": "Маркетинг, нейросети и система",
+        "uploader": "Marketing, Neural Nets and Systems",
     })
     assert meta["creator"] == "@ksyushafedorova"
 
 
 def test_numeric_only_falls_back_to_display_name():
-    meta = _meta("https://instagram.com/reel/A/", {"uploader_id": "565100657", "uploader": "Ксюша"})
-    assert meta["creator"] == "@Ксюша"
+    meta = _meta("https://instagram.com/reel/A/", {"uploader_id": "565100657", "uploader": "Robin"})
+    assert meta["creator"] == "@Robin"
 
 
 def test_meta_missing_uploader():
@@ -151,9 +151,9 @@ def _silent_mp4(path: str) -> None:
 
 
 def test_frames_reads_silent_video():
-    """Через це відео й падав пайплайн: mp3 нема, але зміст на екрані є."""
+    """This is the video that broke the pipeline: no mp3, but the content is on screen."""
     if not shutil.which("ffmpeg"):
-        pytest.skip("нема ffmpeg")
+        pytest.skip("no ffmpeg")
     with tempfile.TemporaryDirectory() as d:
         video = os.path.join(d, "a.mp4")
         _silent_mp4(video)
@@ -185,9 +185,9 @@ class _FakeClient:
 
 
 def _fake_info(url, out_dir):
-    # як його віддає yt-dlp з process=False: entries — генератор, картинки в thumbnails
+    # as yt-dlp returns it with process=False: entries is a generator, images in thumbnails
     return {
-        "channel": "di.sukharev", "description": "важнейшая тема",
+        "channel": "some_creator", "description": "a very important topic",
         "entries": (e for e in [
             {"thumbnails": [{"url": "http://small"}, {"url": "http://big1"}]},
             {"thumbnails": [{"url": "http://small"}, {"url": "http://big2"}]},
@@ -200,15 +200,16 @@ def test_download_images_takes_every_slide_and_biggest_thumbnail(monkeypatch):
     monkeypatch.setattr(instagram, "_image_info", _fake_info)
     monkeypatch.setattr(instagram.httpx, "Client", lambda **kw: _FakeClient(got, **kw))
     paths, meta = instagram.download_images("https://www.instagram.com/p/A/")
-    assert got == ["http://big1", "http://big2"]  # останній thumbnail — найбільший
+    assert got == ["http://big1", "http://big2"]  # the last thumbnail is the largest
     assert len(paths) == 2 and all(os.path.getsize(p) for p in paths)
-    assert meta == {"creator": "@di.sukharev", "source": "IG Post", "caption": "важнейшая тема"}
+    assert meta == {"creator": "@some_creator", "source": "IG Post",
+                    "caption": "a very important topic"}
 
 
 def test_download_images_without_thumbnails_is_an_error(monkeypatch):
     monkeypatch.setattr(instagram, "_image_info",
                         lambda url, out_dir: {"entries": iter([{"thumbnails": []}])})
-    with pytest.raises(RuntimeError, match="жодної картинки"):
+    with pytest.raises(RuntimeError, match="no images in the post"):
         instagram.download_images("https://www.instagram.com/p/A/")
 
 
@@ -218,8 +219,8 @@ def test_no_audio_carries_videos_and_meta():
 
 
 def test_download_audio_reraises_no_audio_not_generic(monkeypatch):
-    # обидва заходи кажуть «звуку нема» — нагору має піти NoAudio, а не RuntimeError,
-    # інакше бот піде качати картинки замість того, щоб прочитати кадри
+    # both attempts say "no sound" — NoAudio must propagate, not RuntimeError, otherwise
+    # the bot would go download images instead of reading the frames
     def always_silent(url, use_cookies):
         raise NoAudio(["/tmp/x.mp4"], {})
     monkeypatch.setattr(instagram, "_download", always_silent)
@@ -253,7 +254,7 @@ if __name__ == "__main__":
 def test_tiktok_source_and_creator():
     assert source_from_url("https://www.tiktok.com/@nick/video/123") == "TikTok"
     assert source_from_url("https://vm.tiktok.com/ZMabc/") == "TikTok"
-    # у TikTok нік — це uploader, а channel — людське ім'я
+    # on TikTok the handle is uploader, and channel is the human name
     meta = _meta("https://www.tiktok.com/@nick/video/123",
                  {"channel": "Nick Display", "uploader": "nick"})
     assert meta == {"creator": "@nick", "source": "TikTok"}

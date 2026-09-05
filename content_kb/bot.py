@@ -17,26 +17,26 @@ from . import ai_engine, instagram, notion_store, tenants, transcribe
 from .delivery import send_text_or_file
 
 logging.basicConfig(level=logging.INFO)
-# httpx логує повний URL запиту, а в ньому — токен бота; у journald це назавжди.
+# httpx logs the full request URL, and the bot token is in it; in journald that is forever.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 VOICE_MODE_IDLE_SECONDS = 60
-# скільки чекати наступного повідомлення, перш ніж зшити пачку в один запис
+# how long to wait for the next message before stitching a batch into one entry
 BATCH_DEBOUNCE_SECONDS = int(os.getenv("BATCH_DEBOUNCE_SECONDS", "25"))
 LINK_URL_RE = re.compile(
     r"https?://(?:[\w-]+\.)?(?:instagram\.com|tiktok\.com)/\S+")
 
-# chat_id-и з увімкненим /voice. Був глобальний прапорець — на двох власниках
-# баз це означало б, що кент вмикає режим транскрипції заразом і мені.
+# chat ids with /voice enabled. This used to be a global flag — with two database
+# owners that would mean one of them turning transcription mode on for the other too.
 _voice_mode = set()
 
-# chat_id -> шматки поточної пачки; голосові й тексти, надіслані підряд, — це одна думка
+# chat_id -> parts of the current batch; voice notes and texts sent in a row are one thought
 _pending = {}
 
 
 def batch_meta(items: list) -> tuple:
-    """(creator, source) для зшитої пачки: голос переважає, автор — перший непорожній."""
+    """(creator, source) for a stitched batch: voice wins, creator is the first non-empty one."""
     creator = next((i["creator"] for i in items if i["creator"]), "")
     source = "Voice" if any(i["is_voice"] for i in items) else "Telegram"
     return creator, source
@@ -47,7 +47,8 @@ def _queue_item(context, chat_id: int, tenant, text: str | None, creator: str, i
     first = not _pending.get(chat_id)
     item = {"creator": creator, "is_voice": is_voice}
     if paths is not None:
-        # ponytail: фото носить paths+tmp_dir замість text — OCR і чистка теки чекають до флашу
+        # ponytail: a photo carries paths+tmp_dir instead of text — OCR and directory
+        # cleanup both wait until the flush
         item.update(paths=paths, tmp_dir=tmp_dir, caption=caption)
     else:
         item["text"] = text
@@ -55,7 +56,7 @@ def _queue_item(context, chat_id: int, tenant, text: str | None, creator: str, i
     job_name = f"batch-{chat_id}"
     for job in context.job_queue.get_jobs_by_name(job_name):
         job.schedule_removal()
-    # тенант їде разом із джобою: до моменту флашу оригінального update вже нема
+    # the tenant rides along with the job: by flush time the original update is long gone
     context.job_queue.run_once(
         _flush_batch, BATCH_DEBOUNCE_SECONDS, chat_id=chat_id, name=job_name, data=tenant)
     return first
@@ -73,21 +74,21 @@ async def _flush_batch(context: ContextTypes.DEFAULT_TYPE) -> None:
     ocr_text = None
     try:
         if photo_items:
-            # усі слайди каруселі одним запитом до Codex, а не по одному на слайд
+            # every carousel slide in a single Codex call, rather than one call per slide
             all_paths = [p for i in photo_items for p in i["paths"]]
             caption = next((i["caption"] for i in photo_items if i["caption"]), "")
             ocr_text = await asyncio.to_thread(ai_engine.read_image, all_paths, caption)
     except Exception as e:
         logger.exception("photo batch OCR failed")
         rest = "\n\n---\n\n".join(i["text"] for i in items if "text" in i)
-        if rest:  # текст і голосові з тієї ж пачки не мають зникнути через одну картинку
-            await _rescue(context, chat_id, f"❌ Codex не прочитав картинки: {e}", rest)
+        if rest:  # text and voice notes from the same batch must not vanish over one image
+            await _rescue(context, chat_id, f"❌ Codex could not read the images: {e}", rest)
         else:
-            await context.bot.send_message(chat_id, f"❌ Codex не прочитав картинки: {e}")
+            await context.bot.send_message(chat_id, f"❌ Codex could not read the images: {e}")
         return
     finally:
-        # ponytail: своя mkdtemp-тека на слайд — простіше, ніж ділити один каталог
-        # між окремими апдейтами каруселі; прибираємо одразу після використання
+        # ponytail: one mkdtemp directory per slide — simpler than sharing a single
+        # directory across the separate updates of a carousel; cleaned up right after use
         for i in photo_items:
             shutil.rmtree(i["tmp_dir"], ignore_errors=True)
 
@@ -102,7 +103,7 @@ async def _flush_batch(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     transcript = "\n\n---\n\n".join(parts)
     content = await _digest(context, chat_id, parts, transcript,
-                            f"📚 Зшиваю {len(parts)} повідомлень в один запис…")
+                            f"📚 Stitching {len(parts)} messages into one entry…")
     if content is None:
         return
     await _save_and_reply(context, chat_id, tenant, content=content, link=None,
@@ -110,7 +111,7 @@ async def _flush_batch(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def _tenant(update: Update):
-    """Tenant власника цього повідомлення або None — тоді бот мовчить."""
+    """The tenant who owns this message, or None — in which case the bot stays silent."""
     user = update.effective_user
     return tenants.get(user.id) if user else None
 
@@ -129,18 +130,19 @@ def creator_from_forward(message) -> str:
 
 
 async def _rescue(context, chat_id: int, reason: str, transcript: str) -> None:
-    """Хвіст пайплайну впав — але транскрипт уже оплачений хвилинами й Deepgram-ом.
-    Віддаємо його користувачу, щоб не качати й не транскрибувати те саме вдруге."""
-    await context.bot.send_message(chat_id, f"{reason}\n\n📄 Транскрипт не загубився:")
+    """The tail of the pipeline failed — but the transcript is already paid for, in
+    minutes and in Deepgram credit. Hand it to the user so the same media does not have
+    to be downloaded and transcribed twice."""
+    await context.bot.send_message(chat_id, f"{reason}\n\n📄 The transcript is not lost:")
     try:
         await send_text_or_file(context.bot, chat_id, transcript, "transcript.txt")
     except Exception:
-        logger.exception("не віддав транскрипт після падіння")
+        logger.exception("failed to hand over the transcript after a failure")
 
 
 async def _digest(context, chat_id: int, parts: list[str], transcript: str, notice: str) -> str | None:
-    """Одна частина — як є. Кілька — Codex зшиває їх в один запис.
-    Провал зшивання рятує вже оплачений транскрипт і повертає None."""
+    """One part goes through as-is. Several are stitched by Codex into one entry.
+    A failed stitch rescues the already-paid-for transcript and returns None."""
     if len(parts) == 1:
         return parts[0]
     await context.bot.send_message(chat_id, notice)
@@ -148,7 +150,7 @@ async def _digest(context, chat_id: int, parts: list[str], transcript: str, noti
         return await asyncio.to_thread(ai_engine.compile_digest, parts)
     except Exception as e:
         logger.exception("digest failed")
-        await _rescue(context, chat_id, f"❌ Codex не зшив пачку: {e}", transcript)
+        await _rescue(context, chat_id, f"❌ Codex could not stitch the batch: {e}", transcript)
         return None
 
 
@@ -159,26 +161,26 @@ async def _save_and_reply(context, chat_id: int, tenant, content: str, link: str
             ai_engine.analyze, content, link or "", tenant.profile_path)
     except Exception as e:
         logger.exception("analyze failed")
-        await _rescue(context, chat_id, f"❌ Codex не проаналізував: {e}", transcript)
+        await _rescue(context, chat_id, f"❌ Codex could not analyze it: {e}", transcript)
         return
     try:
         page_url = await asyncio.to_thread(
             notion_store.save_entry, tenant, analysis, link, creator, source, transcript)
     except Exception as e:
         logger.exception("notion save failed [%s]", tenant.name)
-        await _rescue(context, chat_id, f"❌ Notion не зберіг: {e}", transcript)
+        await _rescue(context, chat_id, f"❌ Notion did not save it: {e}", transcript)
         return
     await context.bot.send_message(
         chat_id, f"✅ {analysis['title']}\n\n{analysis['tldr']}\n\n{page_url}")
 
 
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Відповідає всім — саме цим числом новий власник бази прописується в tenants.json."""
+    """Answers anyone — this number is how a new database owner gets into tenants.json."""
     user = update.effective_user
     tenant = tenants.get(user.id) if user else None
-    known = f"\n\nТи вже підключений як «{tenant.name}»." if tenant else \
-        "\n\nТебе ще нема в конфігу — скинь це число власнику бота."
-    await update.message.reply_text(f"Твій Telegram ID: `{user.id}`{known}",
+    known = f"\n\nYou are already connected as «{tenant.name}»." if tenant else \
+        "\n\nYou are not in the config yet — send this number to the bot's owner."
+    await update.message.reply_text(f"Your Telegram ID: `{user.id}`{known}",
                                     parse_mode="Markdown")
 
 
@@ -189,8 +191,8 @@ async def cmd_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _voice_mode.add(chat_id)
     _reset_voice_mode_timer(context, chat_id)
     await update.message.reply_text(
-        "🎙 Режим транскрипції: голосові повертаю текстом, у базу не пишу. "
-        f"Вимкнеться сам через {VOICE_MODE_IDLE_SECONDS} с тиші.")
+        "🎙 Transcription mode: voice notes come back as text, nothing is written to the base. "
+        f"Turns itself off after {VOICE_MODE_IDLE_SECONDS} s of silence.")
 
 
 def _reset_voice_mode_timer(context, chat_id: int) -> None:
@@ -220,7 +222,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             transcript = await asyncio.to_thread(transcribe.transcribe_file, local_path)
     except Exception as e:
         logger.exception("transcription failed")
-        await context.bot.send_message(chat_id, f"❌ Не транскрибував: {e}")
+        await context.bot.send_message(chat_id, f"❌ Could not transcribe: {e}")
         return
     if chat_id in _voice_mode:
         _reset_voice_mode_timer(context, chat_id)
@@ -228,7 +230,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     if _queue_item(context, chat_id, tenant, transcript, creator_from_forward(msg), is_voice=True):
         await context.bot.send_message(
-            chat_id, f"📥 Прийняв. Кидай ще — зшию в один запис. Тиша {BATCH_DEBOUNCE_SECONDS} с — записую.")
+            chat_id, f"📥 Got it. Send more — I'll stitch them into one entry. {BATCH_DEBOUNCE_SECONDS} s of silence and I write.")
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -237,30 +239,30 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     msg = update.message
     chat_id = msg.chat_id
-    # карусель прилітає окремим апдейтом на кожен слайд — репліка тільки на перший,
-    # інакше на 10 слайдів буде 10 однакових повідомлень
+    # a carousel arrives as a separate update per slide — reply only to the first,
+    # otherwise 10 slides mean 10 identical messages
     if not _pending.get(chat_id):
         await context.bot.send_message(
-            chat_id, f"📸 Читаю картинку… Кидай ще — зшию в один запис, тиша {BATCH_DEBOUNCE_SECONDS} с — записую.")
+            chat_id, f"📸 Reading the image… Send more — I'll stitch them into one entry, {BATCH_DEBOUNCE_SECONDS} s of silence and I write.")
     try:
-        # photo[-1] — найбільший розмір; дрібні прев'ю Telegram не варто віддавати на OCR
+        # photo[-1] is the largest size; Telegram's small previews are not worth OCR-ing
         tg_file = await msg.photo[-1].get_file()
-        # ponytail: своя mkdtemp-тека на слайд — карусель це N окремих апдейтів,
-        # спільний TemporaryDirectory довелось би координувати між ними; OCR
-        # усіх слайдів разом відбувається один раз на флаші (_flush_batch)
+        # ponytail: one mkdtemp directory per slide — a carousel is N separate updates,
+        # and a shared TemporaryDirectory would have to be coordinated across them; OCR
+        # of all the slides together happens once, at the flush (_flush_batch)
         tmp_dir = tempfile.mkdtemp()
         path = os.path.join(tmp_dir, "photo.jpg")
         await tg_file.download_to_drive(path)
     except Exception as e:
         logger.exception("photo download failed")
-        await context.bot.send_message(chat_id, f"❌ Не завантажив картинку: {e}")
+        await context.bot.send_message(chat_id, f"❌ Could not download the image: {e}")
         return
     _queue_item(context, chat_id, tenant, None, creator_from_forward(msg), is_voice=False,
                paths=[path], tmp_dir=tmp_dir, caption=msg.caption or "")
 
 
 def links_from(text: str) -> list:
-    """Усі IG/TikTok-лінки повідомлення, без дублів і без хвостової пунктуації."""
+    """Every IG/TikTok link in the message, deduplicated and without trailing punctuation."""
     seen = []
     for raw in LINK_URL_RE.findall(text):
         url = instagram.profile_to_stories(raw.rstrip(".,);:»\"'"))
@@ -276,7 +278,7 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     chat_id = update.effective_chat.id
     urls = links_from(update.message.text)
     if len(urls) > 1:
-        await update.message.reply_text(f"📥 Знайшов {len(urls)} лінків — беру по черзі, окремим записом кожен")
+        await update.message.reply_text(f"📥 Found {len(urls)} links — taking them one by one, a separate entry each")
     for i, url in enumerate(urls, 1):
         await _process_link(context, chat_id, tenant, url, f"[{i}/{len(urls)}] " if len(urls) > 1 else "")
 
@@ -296,19 +298,19 @@ async def _process_stories(context, chat_id: int, tenant, url: str, tag: str = "
         items, meta = await asyncio.to_thread(instagram.download_stories, url)
     except Exception as e:
         logger.exception("story batch download failed")
-        await context.bot.send_message(chat_id, f"{tag}❌ Не скачав stories: {e}")
+        await context.bot.send_message(chat_id, f"{tag}❌ Could not download the stories: {e}")
         return
-    await context.bot.send_message(chat_id, f"{tag}📚 Обробляю всі {len(items)} stories в один запис…")
+    await context.bot.send_message(chat_id, f"{tag}📚 Processing all {len(items)} stories into one entry…")
     try:
         parts = await asyncio.to_thread(_story_texts, items)
     except Exception as e:
         logger.exception("story transcription/OCR failed")
-        await context.bot.send_message(chat_id, f"{tag}❌ Не розпізнав stories: {e}")
+        await context.bot.send_message(chat_id, f"{tag}❌ Could not read the stories: {e}")
         return
     transcript = parts[0] + "".join(
         f"\n\n--- STORY {index} ---\n\n{text}" for index, text in enumerate(parts[1:], 2))
     content = await _digest(context, chat_id, parts, transcript,
-                            f"{tag}📚 Зшиваю {len(parts)} stories в один запис…")
+                            f"{tag}📚 Stitching {len(parts)} stories into one entry…")
     if content is None:
         return
     await _save_and_reply(context, chat_id, tenant, content=content, link=url,
@@ -316,22 +318,22 @@ async def _process_stories(context, chat_id: int, tenant, url: str, tag: str = "
 
 
 async def _process_link(context, chat_id: int, tenant, url: str, tag: str = "") -> None:
-    try:  # перевірка ДО качання: інакше платимо Deepgram-у за те, що вже в базі
+    try:  # check BEFORE downloading: otherwise we pay Deepgram for what is already stored
         existing = await asyncio.to_thread(notion_store.find_by_link, tenant, url)
     except Exception:
-        logger.exception("перевірка дубля не вдалась — качаю як звичайно")
+        logger.exception("duplicate check failed — downloading as usual")
         existing = None
     if existing:
-        await context.bot.send_message(chat_id, f"{tag}♻️ Це вже в базі:\n{existing}")
+        await context.bot.send_message(chat_id, f"{tag}♻️ Already in the base:\n{existing}")
         return
-    await context.bot.send_message(chat_id, f"{tag}⏳ Качаю…")
+    await context.bot.send_message(chat_id, f"{tag}⏳ Downloading…")
     if "/stories/" in url:
         await _process_stories(context, chat_id, tenant, url, tag)
         return
     try:
         paths, meta = await asyncio.to_thread(instagram.download_audio, url)
     except instagram.NoAudio as silent:
-        # відео є, звуку нема: увесь зміст на екрані — читаємо кадри як слайди
+        # there is video but no sound: the content is all on screen — read the frames as slides
         await _process_image_post(context, chat_id, tenant, url, tag, silent=silent)
         return
     except Exception as e:
@@ -340,29 +342,29 @@ async def _process_link(context, chat_id: int, tenant, url: str, tag: str = "") 
             # Do not hide the real downloader error behind a misleading thumbnail error.
             logger.warning("TikTok video download failed: %s", e)
             error = " ".join(str(e).split())[:400] or type(e).__name__
-            await context.bot.send_message(chat_id, f"{tag}❌ Не скачав TikTok-відео: {error}")
+            await context.bot.send_message(chat_id, f"{tag}❌ Could not download the TikTok video: {error}")
             return
-        # Instagram post без відео — це не помилка, а картинка чи карусель слайдів
-        logger.warning("аудіо не вийшло (%s) — пробую як пост із картинок", e)
+        # an Instagram post with no video is not an error — it is an image or a carousel
+        logger.warning("no audio (%s) — trying it as an image post", e)
         await _process_image_post(context, chat_id, tenant, url, tag)
         return
 
     if len(paths) > 1:
-        await context.bot.send_message(chat_id, f"🎙 Транскрибую {len(paths)} шт…")
+        await context.bot.send_message(chat_id, f"🎙 Transcribing {len(paths)} of them…")
     transcripts, skipped = [], 0
     for path in paths:
         try:
             transcripts.append(await asyncio.to_thread(transcribe.transcribe_file, path))
-        except Exception as e:  # німа сторі не має валити всю пачку
-            logger.warning("пропускаю %s: %s", path, e)
+        except Exception as e:  # one silent story must not take down the whole batch
+            logger.warning("skipping %s: %s", path, e)
             skipped += 1
     if not transcripts:
-        await context.bot.send_message(chat_id, "❌ Ніде немає мовлення — записувати нічого")
+        await context.bot.send_message(chat_id, "❌ No speech anywhere — nothing to write")
         return
 
     transcript = "\n\n---\n\n".join(transcripts)
-    notice = f"📚 Зшиваю {len(transcripts)} шт в один запис" + \
-        (f" (без мовлення: {skipped})" if skipped else "")
+    notice = f"📚 Stitching {len(transcripts)} of them into one entry" + \
+        (f" (no speech in {skipped})" if skipped else "")
     content = await _digest(context, chat_id, transcripts, transcript, notice)
     if content is None:
         return
@@ -373,7 +375,7 @@ async def _process_link(context, chat_id: int, tenant, url: str, tag: str = "") 
 
 async def _process_image_post(context, chat_id: int, tenant, url: str, tag: str = "",
                               silent=None) -> None:
-    """Пост без мовлення: або слайди поста, або кадри з німого відео."""
+    """A post with no speech: either the slides of the post, or frames from a silent video."""
     try:
         if silent is not None:
             paths, meta = await asyncio.to_thread(instagram.frames, silent.videos), silent.meta
@@ -382,17 +384,17 @@ async def _process_image_post(context, chat_id: int, tenant, url: str, tag: str 
             paths, meta = await asyncio.to_thread(instagram.download_images, url)
     except Exception as e:
         logger.exception("image post download failed")
-        await context.bot.send_message(chat_id, f"{tag}❌ Не скачав: {e}")
+        await context.bot.send_message(chat_id, f"{tag}❌ Could not download it: {e}")
         return
-    what = f"🔇 Відео без звуку — читаю {len(paths)} кадр(и)…" if silent is not None else \
-        f"📸 Відео нема — читаю {len(paths)} картинк(и) й підпис…"
+    what = f"🔇 Video with no sound — reading {len(paths)} frame(s)…" if silent is not None else \
+        f"📸 No video — reading {len(paths)} image(s) and the caption…"
     await context.bot.send_message(chat_id, f"{tag}{what}")
     try:
-        # усі слайди одним запитом: карусель — це один хід думки, не N окремих
+        # all the slides in one call: a carousel is a single train of thought, not N separate ones
         content = await asyncio.to_thread(ai_engine.read_image, paths, meta["caption"])
     except Exception as e:
         logger.exception("image read failed")
-        await _rescue(context, chat_id, f"❌ Codex не прочитав картинки: {e}", meta["caption"])
+        await _rescue(context, chat_id, f"❌ Codex could not read the images: {e}", meta["caption"])
         return
     await _save_and_reply(context, chat_id, tenant, content=content, link=url,
                           creator=meta["creator"], source=meta["source"], transcript=content)
@@ -405,23 +407,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     msg = update.message
     if _queue_item(context, msg.chat_id, tenant, msg.text, creator_from_forward(msg), is_voice=False):
         await msg.reply_text(
-            f"📥 Прийняв. Кидай ще — зшию в один запис. Тиша {BATCH_DEBOUNCE_SECONDS} с — записую.")
+            f"📥 Got it. Send more — I'll stitch them into one entry. {BATCH_DEBOUNCE_SECONDS} s of silence and I write.")
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # обрив long-polling — рутина; без хендлера PTB сипле повний трейсбек на кожен
+    # a dropped long-polling connection is routine; without a handler PTB dumps a full
+    # traceback for every one of them
     if isinstance(context.error, NetworkError):
-        logger.warning("мережа: %s", context.error)
+        logger.warning("network: %s", context.error)
         return
-    logger.error("необроблена помилка", exc_info=context.error)
+    logger.error("unhandled error", exc_info=context.error)
 
 
 def main() -> None:
-    # конфіг читаємо до старту polling: краще впасти тут із зрозумілим текстом,
-    # ніж мовчки ігнорувати повідомлення живого власника бази
+    # read the config before polling starts: better to fail here with a legible message
+    # than to silently ignore messages from a live database owner
     registry = tenants.load()
     for tenant in registry.values():
-        logger.info("тенант %s (id %s) → база %s, профіль %s",
+        logger.info("tenant %s (id %s) → base %s, profile %s",
                     tenant.name, tenant.telegram_id, tenant.notion_database_id,
                     tenant.profile_path.name)
 

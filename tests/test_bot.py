@@ -53,20 +53,20 @@ def test_stranger_is_ignored():
 
 
 def test_batch_job_carries_the_tenant():
-    """Через 25 с оригінального update вже нема — тенант має їхати з джобою,
-    інакше пачка кента пішла б у мою базу."""
+    """25 s later the original update is long gone — the tenant has to ride with the job,
+    otherwise one owner's batch would land in another owner's base."""
     bot._pending.clear()
     ctx = _Ctx()
-    assert _queue_item(ctx, 5, KENT, "перше", "", False) is True
-    assert _queue_item(ctx, 5, KENT, "друге", "", False) is False  # репліка тільки на перше
+    assert _queue_item(ctx, 5, KENT, "first", "", False) is True
+    assert _queue_item(ctx, 5, KENT, "second", "", False) is False  # reply only to the first
     assert ctx.job_queue.scheduled[-1]["data"] is KENT
     assert len(bot._pending[5]) == 2
     bot._pending.clear()
 
 
 def test_voice_mode_is_per_chat():
-    """Був глобальний прапорець: кент вмикав /voice — і мої голосові теж переставали
-    писатись у базу."""
+    """This used to be a global flag: one owner turned /voice on and the other owner's
+    voice notes stopped being written to their base too."""
     bot._voice_mode.clear()
     bot._voice_mode.add(555)
     assert 555 in bot._voice_mode and 777 not in bot._voice_mode
@@ -74,24 +74,24 @@ def test_voice_mode_is_per_chat():
 
 
 def test_batch_with_any_voice_is_voice_source():
-    assert batch_meta([_item("текст"), _item("голос", is_voice=True)]) == ("", "Voice")
+    assert batch_meta([_item("text"), _item("voice", is_voice=True)]) == ("", "Voice")
 
 
 def test_batch_of_text_only_is_telegram():
-    assert batch_meta([_item("а"), _item("б")]) == ("", "Telegram")
+    assert batch_meta([_item("a"), _item("b")]) == ("", "Telegram")
 
 
 def test_batch_creator_is_first_non_empty():
-    items = [_item("а"), _item("б", creator="@channel"), _item("в", creator="@other")]
+    items = [_item("a"), _item("b", creator="@channel"), _item("c", creator="@other")]
     assert batch_meta(items)[0] == "@channel"
 
 
 def test_all_links_taken_not_just_first():
-    text = ("глянь https://www.instagram.com/reel/AAA/ і ще "
-            "https://www.instagram.com/reel/BBB/, та https://www.instagram.com/p/CCC/")
+    text = ("look at https://www.instagram.com/reel/AAA/ and also "
+            "https://www.instagram.com/reel/BBB/, plus https://www.instagram.com/p/CCC/")
     assert links_from(text) == [
         "https://www.instagram.com/reel/AAA/",
-        "https://www.instagram.com/reel/BBB/",   # кома в кінці не має прилипати
+        "https://www.instagram.com/reel/BBB/",   # a trailing comma must not stick
         "https://www.instagram.com/p/CCC/",
     ]
 
@@ -141,14 +141,14 @@ def test_mixed_story_batch_is_saved_once_with_full_ordered_transcript(monkeypatc
 
 def test_channel_with_username():
     msg = SimpleNamespace(forward_origin=SimpleNamespace(
-        chat=SimpleNamespace(username="channel", title="Канал"), sender_user=None))
+        chat=SimpleNamespace(username="channel", title="A Channel"), sender_user=None))
     assert creator_from_forward(msg) == "@channel"
 
 
 def test_channel_title_only():
     msg = SimpleNamespace(forward_origin=SimpleNamespace(
-        chat=SimpleNamespace(username=None, title="Канал"), sender_user=None))
-    assert creator_from_forward(msg) == "Канал"
+        chat=SimpleNamespace(username=None, title="A Channel"), sender_user=None))
+    assert creator_from_forward(msg) == "A Channel"
 
 
 def test_user_origin():
@@ -159,8 +159,8 @@ def test_user_origin():
 
 def test_hidden_origin_falls_back_to_name():
     msg = SimpleNamespace(forward_origin=SimpleNamespace(
-        chat=None, sender_user=None, sender_user_name="Хтось"))
-    assert creator_from_forward(msg) == "Хтось"
+        chat=None, sender_user=None, sender_user_name="Someone"))
+    assert creator_from_forward(msg) == "Someone"
 
 
 def test_not_forwarded():
@@ -175,8 +175,8 @@ if __name__ == "__main__":
 
 
 def test_photo_batch_reads_all_slides_in_one_ocr_call(monkeypatch):
-    """Карусель — N окремих апдейтів handle_photo, але OCR має піти одним запитом
-    на флаші, а не по одному на слайд."""
+    """A carousel is N separate handle_photo updates, but OCR must go out as one request
+    at the flush, not one per slide."""
     bot._pending.clear()
 
     ocr_calls = []
@@ -213,7 +213,7 @@ def test_photo_batch_reads_all_slides_in_one_ocr_call(monkeypatch):
 
     ctx = SimpleNamespace(job_queue=_Jobs2(), bot=_Bot())
     asyncio.run(bot.handle_photo(make_update(None), ctx))
-    asyncio.run(bot.handle_photo(make_update("підпис"), ctx))
+    asyncio.run(bot.handle_photo(make_update("a caption"), ctx))
 
     assert len(bot._pending[5]) == 2
     tmp_dirs = [item["tmp_dir"] for item in bot._pending[5]]
@@ -228,21 +228,21 @@ def test_photo_batch_reads_all_slides_in_one_ocr_call(monkeypatch):
     job_ctx = SimpleNamespace(job=SimpleNamespace(chat_id=5, data=KENT), bot=_Bot())
     asyncio.run(bot._flush_batch(job_ctx))
 
-    assert len(ocr_calls) == 1  # один Codex-виклик на всю пачку, не два
+    assert len(ocr_calls) == 1  # one Codex call for the whole batch, not two
     paths, caption = ocr_calls[0]
     assert len(paths) == 2
-    assert caption == "підпис"  # перший непорожній підпис серед слайдів
+    assert caption == "a caption"  # the first non-empty caption among the slides
     assert saved == [{"content": "OCR-RESULT", "link": None, "creator": "",
                       "source": "Telegram", "transcript": "OCR-RESULT"}]
     for d in tmp_dirs:
-        assert not os.path.isdir(d)  # теки прибрані після флашу
+        assert not os.path.isdir(d)  # the directories are cleaned up after the flush
 
     bot._pending.clear()
 
 
 def test_process_link_rescues_transcript_when_digest_fails(monkeypatch):
-    """Раніше _process_link губив оплачений транскрипт при провалі Codex-зшивання —
-    тепер він рятується так само, як в інших місцях."""
+    """_process_link used to lose the paid-for transcript when the Codex stitch failed —
+    now it is rescued the same way it is everywhere else."""
     monkeypatch.setattr(bot.notion_store, "find_by_link", lambda tenant, url: None)
     monkeypatch.setattr(bot.instagram, "download_audio",
                         lambda url: (["a.mp3", "b.mp3"], {"creator": "@x", "source": "Telegram"}))
@@ -271,7 +271,7 @@ def test_process_link_rescues_transcript_when_digest_fails(monkeypatch):
 
 
 def test_links_from_picks_tiktok():
-    text = "гля https://www.tiktok.com/@a/video/1 і https://vm.tiktok.com/ZMabc/."
+    text = "see https://www.tiktok.com/@a/video/1 and https://vm.tiktok.com/ZMabc/."
     assert links_from(text) == ["https://www.tiktok.com/@a/video/1",
                                 "https://vm.tiktok.com/ZMabc/"]
 
@@ -306,4 +306,4 @@ def test_tiktok_extractor_error_is_not_masked_as_image_post(monkeypatch):
         "https://vt.tiktok.com/ZSVNB2bLU?share_app_id=1233"))
 
     assert image_fallbacks == []
-    assert messages[-1] == "❌ Не скачав TikTok-відео: TikTok extractor unavailable"
+    assert messages[-1] == "❌ Could not download the TikTok video: TikTok extractor unavailable"

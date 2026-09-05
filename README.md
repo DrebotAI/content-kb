@@ -29,7 +29,7 @@ For each piece of content, the bot:
    - Two independent 3-level scales:
      - **Value** (Must-know / Useful / Reference) — learning & work value
      - **Content Potential** (Strong angle / Adaptable / Weak) — repackageable into creator's own content
-   - Hook (first line of a Reel)
+   - Hook (the first line of a Reel)
    - Content angle and recommended format (Reel, carousel, case study, etc.)
    - Adaptation steps to turn it into original content
 5. **Saves to Notion** as a rich page with:
@@ -112,13 +112,15 @@ Plus the `codex` CLI — see [Requirements](#requirements).
 paid account. Telegram's and Notion's APIs are free at this volume.
 
 **Language.** `KB_LANGUAGE` sets the language of everything the AI writes — title, summary,
-key ideas, hook, content angle: `uk` for Ukrainian (the default), `en` for English, or
+key ideas, hook, content angle: `en` for English (the default), `uk` for Ukrainian, or
 `auto` to follow whatever language the content itself is in. The label vocabulary stored in
-Notion (Value, Content Potential, Tags, Recommended Format) follows `uk` and `en`, but stays
-Ukrainian under `auto`, because those are enum values in the database and cannot change from
-one message to the next. `tools/setup_notion.py` creates the select options from the same setting,
-so choose the language *before* creating the database — switch it later and old entries keep
-their old labels while the columns end up holding both sets.
+Notion (Value, Content Potential, Tags, Recommended Format) and the page-body headings follow
+`en` and `uk`, but stay English under `auto`, because the labels are enum values in the
+database and cannot change from one message to the next. `tools/setup_notion.py` creates the
+select options from the same setting, so choose the language *before* creating the database —
+switch it later and old entries keep their old labels while the columns end up holding both
+sets. The bot's own replies and `tools/doctor.py` are always in English, independent of this
+setting.
 
 ## Requirements
 
@@ -197,8 +199,7 @@ git clone https://github.com/DrebotAI/content-kb.git && cd content-kb
    python -m content_kb.bot
    ```
 
-Full setup guide, with the Instagram session details (Ukrainian):
-[SETUP.md](SETUP.md)
+Full setup guide, including the Instagram session details: [SETUP.md](SETUP.md)
 
 ## Repo layout
 

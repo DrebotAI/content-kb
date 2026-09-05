@@ -12,27 +12,27 @@ from http.cookiejar import MozillaCookieJar
 import httpx
 import yt_dlp
 
-# голий профіль: instagram.com/нік — без /p/, /reel/, /stories/ тощо
+# a bare profile: instagram.com/handle — no /p/, /reel/, /stories/ and so on
 _BARE_PROFILE_RE = re.compile(r"^https?://(?:www\.)?instagram\.com/([^/?#]+)/?(?:[?#].*)?$")
 _NOT_PROFILE = {"p", "reel", "reels", "stories", "tv", "explore", "share"}
 _STORIES_USER_RE = re.compile(r"/stories/([^/?#]+)")
 _STORY_ITEM_RE = re.compile(
     r"^https?://(?:www\.)?instagram\.com/stories/([^/?#]+)/\d+/?(?:[?#].*)?$")
 
-# скільки кадрів знімати з німого відео і як часто
+# how many frames to grab from a silent video, and how often
 FRAME_EVERY_SECONDS = 3
 FRAMES_PER_VIDEO = 4
 
 
 class NoAudio(RuntimeError):
-    """Відео скачалось, але звукової доріжки в ньому нема — транскрибувати нічого.
+    """The video downloaded, but it has no audio track — there is nothing to transcribe.
 
-    Окремий тип, бо це не збій качання: такий пост читається з кадрів (`frames`),
-    а не через `download_images` як пост із картинок.
+    A type of its own, because this is not a download failure: such a post is read from
+    its frames (`frames`), not through `download_images` like an image post.
     """
 
     def __init__(self, videos: list, meta: dict):
-        super().__init__("у відео немає звукової доріжки")
+        super().__init__("the video has no audio track")
         self.videos, self.meta = videos, meta
 
 
@@ -63,33 +63,33 @@ def _apply_ydl_proxy(opts: dict, url: str | None = None) -> dict:
 
 
 def download_audio(url: str) -> tuple[list, dict]:
-    """Скачує аудіо з Instagram. Повертає (список mp3, meta: creator/source).
+    """Downloads audio from Instagram. Returns (list of mp3s, meta: creator/source).
 
-    Для одиничного рела/поста список з одного елемента, для сторіз — усі сторіз чувака.
+    For a single reel/post that is a one-element list; for stories, all of that user's stories.
     """
-    # Сторіз без кук не віддаються взагалі, а релам протухлі куки ламають запит
-    # (Instagram відповідає 400, хоча анонімно той самий рел качається).
-    # Тому пробуємо обидва шляхи, починаючи з того, що ймовірніший для цього типу лінка.
+    # Stories are not served at all without cookies, while for reels stale cookies break
+    # the request (Instagram answers 400, even though the same reel downloads anonymously).
+    # So try both paths, starting with whichever is likelier for this kind of link.
     prefer_cookies = "/stories/" in url
-    # TikTok віддається анонімно, а IG-куки для нього все одно нічого не значать
+    # TikTok is served anonymously, and IG cookies mean nothing to it anyway
     attempts = (False,) if _is_tiktok(url) else (prefer_cookies, not prefer_cookies)
     errors, silent = [], None
     for use_cookies in attempts:
         try:
             return _download(url, use_cookies)
         except NoAudio as e:
-            # другий захід ще може дістати доріжку — але якщо й він не дасть, віддамо кадри
+            # the second attempt may still find a track — if it does not, we fall back to frames
             silent = e
-            errors.append(f"{'з куками' if use_cookies else 'без кук'}: {e}")
+            errors.append(f"{'with cookies' if use_cookies else 'anonymous'}: {e}")
         except Exception as e:
-            errors.append(f"{'з куками' if use_cookies else 'без кук'}: {e}")
+            errors.append(f"{'with cookies' if use_cookies else 'anonymous'}: {e}")
     if silent:
         raise silent
     raise RuntimeError(" | ".join(errors))
 
 
 def frames(videos: list) -> list:
-    """Кадри з німого відео — далі йдуть на OCR тим самим шляхом, що й слайди каруселі."""
+    """Frames from a silent video — they go to OCR the same way carousel slides do."""
     out = []
     for i, video in enumerate(videos):
         pattern = os.path.join(os.path.dirname(video), f"frame{i}_%02d.jpg")
@@ -100,12 +100,12 @@ def frames(videos: list) -> list:
         )
         out += sorted(glob.glob(pattern.replace("%02d", "*")))
     if not out:
-        raise RuntimeError("ffmpeg не витяг жодного кадру з німого відео")
+        raise RuntimeError("ffmpeg extracted no frames from the silent video")
     return out
 
 
 def _purge_old(max_age_seconds: int = 3600) -> None:
-    """Кожне качання лишає теку в /tmp; за тиждень це сотні мегабайт відео."""
+    """Every download leaves a directory in /tmp; over a week that is hundreds of MB of video."""
     cutoff = time.time() - max_age_seconds
     for d in glob.glob(os.path.join(tempfile.gettempdir(), "ig_*")):
         if os.path.isdir(d) and os.path.getmtime(d) < cutoff:
@@ -182,7 +182,7 @@ def download_stories(url: str) -> tuple[list[dict], dict]:
     url = profile_to_stories(url)
     match = _STORIES_USER_RE.search(url)
     if not match or match.group(1) == "highlights":
-        raise RuntimeError("це не лінк на активні stories користувача")
+        raise RuntimeError("this is not a link to a user's active stories")
     username = match.group(1)
     _purge_old()
     out_dir = tempfile.mkdtemp(prefix="ig_story_")
@@ -196,7 +196,7 @@ def download_stories(url: str) -> tuple[list[dict], dict]:
         payload = _story_json(client, "/api/v1/feed/reels_media/", reel_ids=user_id)
         plan = story_media_plan(payload, user_id)
         if not plan:
-            raise RuntimeError("у користувача немає доступних активних stories")
+            raise RuntimeError("the user has no accessible active stories")
 
         items = []
         for index, media in enumerate(plan, 1):
@@ -233,49 +233,50 @@ def _download(url: str, use_cookies: bool) -> tuple[list, dict]:
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
         "quiet": True,
         "no_warnings": True,
-        "noprogress": True,  # інакше прогрес-бар засмічує journald
-        "ignoreerrors": True,  # одна побита сторі не має валити всю пачку
+        "noprogress": True,  # otherwise the progress bar litters journald
+        "ignoreerrors": True,  # one broken story must not take down the whole batch
     }, url)
     cookies_file = os.getenv("IG_COOKIES_FILE")
     if use_cookies and cookies_file and os.path.exists(cookies_file):
-        # yt-dlp зберігає банку кук назад у cookiefile, а Instagram у відповіді гасить
-        # sessionid — після першого ж качання файл лишався без логіна назавжди.
-        # Тому віддаємо копію, оригінал не чіпаємо.
+        # yt-dlp writes the cookie jar back to cookiefile, and Instagram clears sessionid
+        # in its response — after the very first download the file was left logged out for
+        # good. So hand over a copy and leave the original alone.
         ydl_opts["cookiefile"] = shutil.copy(cookies_file, os.path.join(out_dir, "cookies.txt"))
     elif use_cookies:
-        raise RuntimeError("файл кук не знайдено")
+        raise RuntimeError("cookie file not found")
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         if info is None:
-            raise RuntimeError("yt-dlp нічого не витяг — перевір лінк і свіжість кук")
+            raise RuntimeError("yt-dlp extracted nothing — check the link and whether the cookies are fresh")
         entries = _entries(info)
         paths = [os.path.splitext(ydl.prepare_filename(e))[0] + ".mp3" for e in entries]
 
     paths = [p for p in paths if os.path.exists(p)]
     if not paths:
-        # німе відео (текст на екрані, музики нема): формат bestaudio/best падає на
-        # video-only, ffmpeg не робить mp3 — але саме відео лежить у теці й читається з кадрів
+        # a silent video (text on screen, no music): the bestaudio/best format falls back
+        # to video-only and ffmpeg produces no mp3 — but the video itself is in the
+        # directory and gets read from its frames
         videos = sorted(p for p in glob.glob(os.path.join(out_dir, "*.mp4")))
         if videos:
             raise NoAudio(videos, _meta(url, info))
-        raise RuntimeError("жоден файл не викачався (сторіз могло не бути, або куки протухли)")
+        raise RuntimeError("nothing downloaded (there may have been no stories, or the cookies are stale)")
     return paths, _meta(url, info)
 
 
 def download_images(url: str) -> tuple[list, dict]:
-    """Пост без відео: усі слайди каруселі + підпис. Повертає (список картинок, meta).
+    """A post with no video: every carousel slide plus the caption. Returns (images, meta).
 
-    Раніше тут був gallery-dl, але його IG-екстрактор лежить: rest кидає на логін,
-    graphql віддає 401 — і зі свіжою сесією теж. Тому той самий yt-dlp, тільки в обхід
-    вибору формату: process=False віддає сирі entries (по одному на слайд каруселі),
-    а ignore_no_formats_error не дає впасти на «There is no video in this post».
-    Картинки лежать у thumbnails, останній елемент — найбільший.
+    This used to use gallery-dl, but its IG extractor is dead: rest redirects to login and
+    graphql answers 401 — with a fresh session too. So it is the same yt-dlp, just routed
+    around format selection: process=False yields raw entries (one per carousel slide), and
+    ignore_no_formats_error keeps it from dying on "There is no video in this post".
+    The images live in thumbnails, and the last element is the largest.
     """
     _purge_old()
     out_dir = tempfile.mkdtemp(prefix="ig_img_")
     info = _image_info(url, out_dir)
-    # entries із process=False — генератор, а _meta пройдеться по ньому вдруге
+    # entries under process=False is a generator, and _meta walks it a second time
     info["entries"] = _entries(info)
 
     client_kwargs = {"timeout": 60, "follow_redirects": True}
@@ -293,7 +294,7 @@ def download_images(url: str) -> tuple[list, dict]:
             _write_response(client, thumbs[-1]["url"], path)
             paths.append(path)
     if not paths:
-        raise RuntimeError("yt-dlp не знайшов у пості жодної картинки")
+        raise RuntimeError("yt-dlp found no images in the post")
 
     meta = _meta(url, info)
     meta["caption"] = str(info.get("description")
@@ -303,7 +304,7 @@ def download_images(url: str) -> tuple[list, dict]:
 
 
 def _image_info(url: str, out_dir: str) -> dict:
-    """Сирий info поста. Куки — копією: інакше yt-dlp зітре з оригіналу sessionid."""
+    """The post's raw info. Cookies go in as a copy: otherwise yt-dlp wipes sessionid from the original."""
     ydl_opts = _apply_ydl_proxy(
         {"quiet": True, "no_warnings": True, "ignore_no_formats_error": True}, url)
     cookies_file = os.getenv("IG_COOKIES_FILE")
@@ -319,14 +320,14 @@ def _image_info(url: str, out_dir: str) -> dict:
                 info = ydl.extract_info(url, download=False, process=False)
             if info:
                 return info
-            errors.append(f"{'з куками' if use_cookies else 'без кук'}: порожня відповідь")
+            errors.append(f"{'with cookies' if use_cookies else 'anonymous'}: empty response")
         except Exception as e:
-            errors.append(f"{'з куками' if use_cookies else 'без кук'}: {e}")
-    raise RuntimeError(" | ".join(errors) or "нема ні кук, ні анонімного доступу")
+            errors.append(f"{'with cookies' if use_cookies else 'anonymous'}: {e}")
+    raise RuntimeError(" | ".join(errors) or "neither cookies nor anonymous access")
 
 
 def profile_to_stories(url: str) -> str:
-    """Голий профіль або одна story означає "усі активні stories цього чувака"."""
+    """A bare profile or a single story means "every active story of that user"."""
     story = _STORY_ITEM_RE.match(url)
     if story and story.group(1) != "highlights":
         return f"https://www.instagram.com/stories/{story.group(1)}/"
@@ -341,7 +342,7 @@ def _is_tiktok(url: str) -> bool:
 
 
 def source_from_url(url: str) -> str:
-    # ponytail: модуль лишається instagram.py — качання в обох випадках той самий yt-dlp
+    # ponytail: the module stays instagram.py — either way the download is the same yt-dlp
     if _is_tiktok(url):
         return "TikTok"
     if "/reel" in url:
@@ -356,13 +357,13 @@ def _entries(info: dict) -> list:
 
 
 def _meta(url: str, info: dict) -> dict:
-    # для сторіз yt-dlp віддає числовий uploader_id, а нік лежить прямо в лінку
+    # for stories yt-dlp returns a numeric uploader_id, while the handle sits right in the link
     from_url = _STORIES_USER_RE.search(url)
     if from_url:
         return {"creator": f"@{from_url.group(1)}", "source": source_from_url(url)}
     first = _entries(info)[0] if info.get("entries") else info
-    # IG: channel — це нік, uploader_id числовий, uploader — відображуване ім'я.
-    # TikTok навпаки: нік лежить в uploader, а channel — це людське ім'я.
+    # IG: channel is the handle, uploader_id is numeric, uploader is the display name.
+    # TikTok is the other way round: the handle is in uploader, and channel is the human name.
     keys = ("uploader", "channel") if _is_tiktok(url) else ("channel", "uploader_id", "uploader")
     for src in (info, first):
         for key in keys:

@@ -1,11 +1,11 @@
-"""Перевірка тенантів перед тим, як віддавати бота людині:
+"""Check the tenants before handing the bot to someone:
 
-    python tools/doctor.py                # усі тенанти
-    python tools/doctor.py kent           # один
-    python tools/doctor.py kent --probe   # ще й створити тестову сторінку і заархівувати
+    python tools/doctor.py                # every tenant
+    python tools/doctor.py alice          # just one
+    python tools/doctor.py alice --probe  # also create a test page and archive it
 
-Ловить рівно ті три речі, на яких спотикається кожен новий власник бази:
-токен не той, інтеграцію не додали в Connections, у базі бракує колонок.
+Catches exactly the three things every new database owner trips over:
+the wrong token, the integration not added under Connections, missing columns.
 """
 import os
 import sys
@@ -20,55 +20,55 @@ from content_kb import notion_store, tenants
 
 
 def _check_instagram() -> bool:
-    """Куки IG тихо протухають — і бот тижнями віддає «не скачав» замість сторіз."""
+    """IG cookies go stale quietly — and the bot answers "download failed" for weeks."""
     path = os.getenv("IG_COOKIES_FILE")
     print("\n[instagram]")
     if not path or not os.path.exists(path):
-        print(f"  ⚠️  файлу кук нема ({path or 'IG_COOKIES_FILE не заданий'}) — сторіз не буде")
-        return True  # не всім тенантам він потрібен
+        print(f"  ⚠️  no cookie file ({path or 'IG_COOKIES_FILE is not set'}) — no stories")
+        return True  # not every tenant needs one
     cookiejar = MozillaCookieJar(path)
     try:
         cookiejar.load(ignore_discard=True, ignore_expires=True)
     except (OSError, ValueError):
-        print(f"  ❌ файл кук {path} не читається")
+        print(f"  ❌ cookie file {path} is not readable")
         return False
     cookies = {c.name: c.value for c in cookiejar}
     if "sessionid" not in cookies:
-        print(f"  ❌ у {path} нема sessionid — залогінься в IG і перевикладай куки")
+        print(f"  ❌ no sessionid in {path} — log in to IG and export the cookies again")
         return False
     r = httpx.get("https://www.instagram.com/accounts/edit/", cookies=cookies,
                   follow_redirects=False, timeout=15,
                   headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                          "AppleWebKit/537.36 Chrome/131.0 Safari/537.36"})
     if "/accounts/login/" in r.headers.get("location", ""):
-        print("  ❌ сесія протухла — IG кидає на логін")
+        print("  ❌ the session is stale — IG redirects to login")
         return False
-    print("  ✅ сесія жива")
+    print("  ✅ the session is alive")
     return True
 
 
 def _check(tenant, probe: bool) -> bool:
     print(f"\n[{tenant.name}]  telegram_id={tenant.telegram_id}")
-    print(f"  база    {tenant.notion_database_id}")
-    print(f"  профіль {tenant.profile_path.name}"
-          f"{'' if tenant.profile_path.exists() else '  ⚠️  файлу немає — оцінка без контексту'}")
+    print(f"  base     {tenant.notion_database_id}")
+    print(f"  profile  {tenant.profile_path.name}"
+          f"{'' if tenant.profile_path.exists() else '  ⚠️  file missing — rating without context'}")
     try:
         problems = notion_store.check_access(tenant)
     except Exception as exc:
-        print(f"  ❌ Notion недоступний: {exc}")
+        print(f"  ❌ Notion is unreachable: {exc}")
         return False
     if problems:
         for p in problems:
             print(f"  ❌ {p}")
         return False
-    print("  ✅ токен бачить базу, схема на місці")
+    print("  ✅ the token sees the base, the schema is in place")
     if probe:
         try:
             notion_store.probe(tenant)
         except Exception as exc:
-            print(f"  ❌ тестовий запис не пройшов: {exc}")
+            print(f"  ❌ the test entry did not go through: {exc}")
             return False
-        print("  ✅ тестова сторінка створена й заархівована")
+        print("  ✅ test page created and archived")
     return True
 
 
@@ -78,16 +78,16 @@ def main() -> None:
     try:
         registry = tenants.load()
     except tenants.ConfigError as exc:
-        sys.exit(f"❌ конфіг: {exc}")
+        sys.exit(f"❌ config: {exc}")
 
     chosen = list(registry.values())
     if args:
         chosen = [t for t in chosen if t.name in args]
         unknown = set(args) - {t.name for t in registry.values()}
         if unknown:
-            sys.exit(f"❌ нема таких тенантів: {', '.join(sorted(unknown))}")
+            sys.exit(f"❌ no such tenants: {', '.join(sorted(unknown))}")
 
-    print(f"Тенантів у конфігу: {len(registry)}")
+    print(f"Tenants in the config: {len(registry)}")
     ok = [_check(t, probe) for t in chosen]
     ok.append(_check_instagram())
     print()

@@ -27,11 +27,11 @@ def transcribe_file(path: str) -> str:
 
 
 def _transcript_from(response) -> str:
-    """Порожній транскрипт — це помилка, а не результат: інакше в базу піде пустий запис."""
+    """An empty transcript is an error, not a result: otherwise a blank entry lands in the base."""
     channels = response.results.channels
     if not channels or not channels[0].alternatives:
-        raise RuntimeError("Deepgram не побачив аудіодоріжки у файлі")
+        raise RuntimeError("Deepgram found no audio track in the file")
     transcript = channels[0].alternatives[0].transcript.strip()
     if not transcript:
-        raise RuntimeError("У файлі немає розпізнаваного мовлення")
+        raise RuntimeError("The file contains no recognisable speech")
     return transcript

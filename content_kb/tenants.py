@@ -1,13 +1,13 @@
-"""Кілька власників баз на одному боті.
+"""Several database owners on one bot.
 
-Джерело правди — `tenants.json` у корені проєкту (у git не їде — там токени).
-Файлу немає — конфіг збирається з `.env`, і бот працює як раніше, на одного:
-старий деплой оновлюється без жодної правки конфігу.
+The source of truth is `tenants.json` in the project root (kept out of git — it holds
+tokens). With no such file the config is assembled from `.env` and the bot runs
+single-user as before: an old deployment upgrades without touching its config.
 
-Секрети можна не дублювати у другому файлі:
-    "notion_token": "env:KENT_NOTION_TOKEN"
-бере значення зі змінної оточення, а сам `tenants.json` лишається таким,
-що його не соромно відкрити при демонстрації екрана.
+Secrets need not be duplicated into a second file:
+    "notion_token": "env:SOMEONE_NOTION_TOKEN"
+takes the value from an environment variable, leaving `tenants.json` safe to open
+while sharing your screen.
 """
 from __future__ import annotations
 
@@ -22,16 +22,17 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parents[1]
 CONFIG_FILE = Path(os.getenv("TENANTS_FILE") or _HERE / "tenants.json")
 
-# id бази — 32 hex у самому кінці шляху. Беремо останній hex-«прогін» і з нього
-# останні 32: у слагу типу «Knowledge-Base-<id>» дефіси зникають і хвіст назви
-# ("...Bas-e") прилипає до id спереду, тож рівно-32 з межами тут не спрацює.
+# a database id is 32 hex at the very end of the path. Take the last hex run and its last
+# 32 characters: in a slug like «Knowledge-Base-<id>» the hyphens vanish and the tail of
+# the name ("...Bas-e") sticks to the front of the id, so an exactly-32 match with word
+# boundaries does not work here.
 _HEX_RUN = re.compile(r"[0-9a-fA-F]{32,}")
 
 _REQUIRED = ("name", "telegram_id", "notion_token", "notion_database_id")
 
 
 class ConfigError(RuntimeError):
-    """Конфіг кривий. Падаємо на старті, а не на першому повідомленні о 2 ночі."""
+    """The config is broken. Fail at startup, not on the first message at 2am."""
 
 
 @dataclass(frozen=True)
@@ -44,24 +45,26 @@ class Tenant:
 
     @property
     def profile_path(self) -> Path:
-        """Профіль власника для оцінки цінності. У кожного свій — інакше кентів
-        контент оцінюється під мої деали й усе поспіль стає 📎 Довідково."""
+        """The owner's profile, used to calibrate value. Everyone has their own — otherwise
+        one person's content gets rated against another's deals and everything becomes
+        📎 Reference."""
         path = Path(self.context_file).expanduser()
         return path if path.is_absolute() else _HERE / path
 
 
 def database_id(value: str) -> str:
-    """32 hex із чого завгодно: голий id, id з дефісами або URL бази.
+    """32 hex out of anything: a bare id, a hyphenated id, or a database URL.
 
-    Query-частину відрізаємо ПЕРЕД пошуком: у `?v=<32 hex>` лежить id вʼю, і
-    взявши «останній hex-шматок» із повного URL, ми б стабільно чіпляли саме
-    його — а Notion на такий id відповідає 404, який шукають годину.
+    The query string is stripped BEFORE the search: `?v=<32 hex>` holds the *view* id, and
+    taking "the last hex chunk" of a full URL would reliably grab that one instead — and
+    Notion answers such an id with a 404 that takes an hour to track down.
     """
     head = str(value).strip().split("?", 1)[0].replace("-", "")
     runs = _HEX_RUN.findall(head)
     if not runs:
         raise ConfigError(
-            f"не бачу id бази у {value!r} — треба 32 hex-символи або URL самої бази")
+            f"cannot see a database id in {value!r} — expected 32 hex characters "
+            "or the URL of the database itself")
     raw = runs[-1][-32:].lower()
     return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
 
@@ -74,22 +77,22 @@ def _secret(value, field: str, where: str) -> str:
     got = os.getenv(var)
     if not got:
         raise ConfigError(
-            f"{where}: {field} посилається на {var}, а такої змінної в оточенні немає")
+            f"{where}: {field} points at {var}, but there is no such environment variable")
     return got
 
 
 def _one(raw, where: str) -> Tenant:
     if not isinstance(raw, dict):
-        raise ConfigError(f"{where}: очікую обʼєкт {{...}}, а не {type(raw).__name__}")
+        raise ConfigError(f"{where}: expected an object {{...}}, not {type(raw).__name__}")
     missing = [k for k in _REQUIRED if not str(raw.get(k, "")).strip()]
     if missing:
-        raise ConfigError(f"{where}: не заповнено {', '.join(missing)}")
+        raise ConfigError(f"{where}: not filled in: {', '.join(missing)}")
     try:
         telegram_id = int(str(raw["telegram_id"]).strip())
     except ValueError:
         raise ConfigError(
-            f"{where}: telegram_id має бути числом, а не {raw['telegram_id']!r} "
-            "(це числовий id, не @нік)") from None
+            f"{where}: telegram_id must be a number, not {raw['telegram_id']!r} "
+            "(it is the numeric id, not the @handle)") from None
     return Tenant(
         name=str(raw["name"]).strip(),
         telegram_id=telegram_id,
@@ -101,34 +104,34 @@ def _one(raw, where: str) -> Tenant:
 
 
 def parse(items) -> dict:
-    """Список сирих записів → {telegram_id: Tenant}. Кидає ConfigError на будь-якій кривизні."""
+    """Raw records → {telegram_id: Tenant}. Raises ConfigError on anything malformed."""
     if not isinstance(items, list):
-        raise ConfigError("tenants.json має бути списком [ {...}, {...} ]")
+        raise ConfigError("tenants.json must be a list [ {...}, {...} ]")
     if not items:
-        raise ConfigError("tenants.json порожній — нікому писати в базу")
+        raise ConfigError("tenants.json is empty — nobody to write to a base")
     registry: dict = {}
     for i, raw in enumerate(items, 1):
-        tenant = _one(raw, f"тенант #{i}")
+        tenant = _one(raw, f"tenant #{i}")
         twin = registry.get(tenant.telegram_id)
         if twin:
-            # мовчазний перезапис означав би, що один із двох просто ніколи
-            # нічого не отримує, і шукати це довелося б по логах
+            # a silent overwrite would mean one of the two simply never receives anything,
+            # and finding that out would take a trip through the logs
             raise ConfigError(
-                f"telegram_id {tenant.telegram_id} вказано двічі: "
-                f"«{twin.name}» і «{tenant.name}»")
+                f"telegram_id {tenant.telegram_id} is listed twice: "
+                f"«{twin.name}» and «{tenant.name}»")
         registry[tenant.telegram_id] = tenant
     return registry
 
 
 def _from_env() -> dict:
-    """Старий однокористувацький режим — щоб деплой без tenants.json не впав."""
+    """The old single-user mode — so a deployment without tenants.json still starts."""
     missing = [v for v in ("ALLOWED_USER_ID", "NOTION_TOKEN", "NOTION_DATABASE_ID")
                if not os.getenv(v)]
     if missing:
         raise ConfigError(
-            f"немає {CONFIG_FILE.name}, а в .env бракує {', '.join(missing)}. "
-            f"Або створи {CONFIG_FILE.name} (див. tenants.example.json), "
-            "або допиши ці змінні в .env")
+            f"no {CONFIG_FILE.name}, and .env is missing {', '.join(missing)}. "
+            f"Either create {CONFIG_FILE.name} (see tenants.example.json), "
+            "or add those variables to .env")
     return parse([{
         "name": os.getenv("TENANT_NAME", "owner"),
         "telegram_id": os.environ["ALLOWED_USER_ID"],
@@ -149,7 +152,7 @@ def load(force: bool = False) -> dict:
         try:
             items = json.loads(CONFIG_FILE.read_text())
         except json.JSONDecodeError as exc:
-            raise ConfigError(f"{CONFIG_FILE.name} — не валідний JSON: {exc}") from None
+            raise ConfigError(f"{CONFIG_FILE.name} is not valid JSON: {exc}") from None
         _cache = parse(items)
     else:
         _cache = _from_env()
@@ -157,5 +160,5 @@ def load(force: bool = False) -> dict:
 
 
 def get(telegram_id: int):
-    """Tenant або None. None — чужий, бот мовчить."""
+    """A Tenant, or None. None means a stranger, and the bot stays silent."""
     return load().get(telegram_id)

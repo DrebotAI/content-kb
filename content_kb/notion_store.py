@@ -4,25 +4,59 @@ import httpx
 from notion_client import Client
 from notion_client.errors import HTTPResponseError
 
-RETRIES = 3
-RETRY_BACKOFF_SECONDS = 2  # тести ставлять 0
+from .ai_engine import LABEL_LANG
 
-# ponytail: пін старої версії API — у 2025-09-03 схема інша (data_source, initial_data_source).
-# Мігрувати, коли Notion почне відмовляти 2022-06-28.
+RETRIES = 3
+RETRY_BACKOFF_SECONDS = 2  # the tests set this to 0
+
+# ponytail: pinned to the old API version — the 2025-09-03 one has a different schema
+# (data_source, initial_data_source). Migrate when Notion starts refusing 2022-06-28.
 _NOTION_VERSION = "2022-06-28"
 
-# по клієнту на токен: у кожного тенанта свій, а Client тримає httpx-пул —
-# створювати його на кожен запис означало б нове зʼєднання щоразу
+# one client per token: every tenant has their own, and Client holds an httpx pool —
+# building one per entry would mean a fresh connection every time
 _clients: dict = {}
 
-_BLOCK_CHAR_LIMIT = 1900  # ліміт Notion rich_text на об'єкт — 2000 символів (перевірено)
-# ponytail: 45 чанків ≈ 85k символів ≈ 1.5 години мовлення. Транскрипт лежить двічі —
-# у property (щоб фільтр `contains` його знаходив; блоки пошуку не піддаються) і в toggle
-# (щоб читалось). Кирилиця — 2 байти, тож удвічі по 45 чанків ще влазить у ліміт запиту 500 КБ.
+_BLOCK_CHAR_LIMIT = 1900  # Notion's rich_text limit per object is 2000 characters (verified)
+# ponytail: 45 chunks ≈ 85k characters ≈ 1.5 hours of speech. The transcript is stored twice —
+# in a property (so a `contains` filter finds it; blocks are not searchable) and in a toggle
+# (so it reads well). Non-ASCII costs 2 bytes, so 45 chunks twice over still fits the 500 KB
+# request limit.
 _MAX_TRANSCRIPT_CHUNKS = 45
 
-# Колонки, без яких запис не створиться. Тип має значення: select замість
-# multi_select на Tags — і Notion відкине вже живий пост із 400.
+# Page-body headings. These are content, so they follow KB_LANGUAGE like everything else
+# the AI writes; unlike the select options they are free text and safe to change later.
+_HEADINGS = {
+    "en": {
+        "summary": "📝 Summary",
+        "source_idea": "🎯 Source idea",
+        "key_ideas": "💡 Key ideas",
+        "practical": "🛠 Practical",
+        "learning_takeaway": "🧠 What to check or apply",
+        "hook": "🪝 Hook",
+        "angle": "🎬 Angle for a Reel",
+        "adaptation": "♻️ How to repackage",
+        "own_proof": "🧾 Own proof",
+        "transcript": "📄 Transcript",
+        "probe": "✅ Access check",
+    },
+    "uk": {
+        "summary": "📝 Summary",
+        "source_idea": "🎯 Ідея оригіналу",
+        "key_ideas": "💡 Ключові думки",
+        "practical": "🛠 Практично",
+        "learning_takeaway": "🧠 Що перевірити або застосувати",
+        "hook": "🪝 Хук",
+        "angle": "🎬 Кут для Reels",
+        "adaptation": "♻️ Як перепакувати",
+        "own_proof": "🧾 Власний доказ",
+        "transcript": "📄 Транскрипт",
+        "probe": "✅ Перевірка доступу",
+    },
+}[LABEL_LANG]
+
+# Columns without which an entry cannot be created. The type matters: a select instead of
+# a multi_select on Tags and Notion rejects an already-live post with a 400.
 REQUIRED_PROPERTIES = {
     "Name": "title",
     "Source": "select",
@@ -48,7 +82,7 @@ def _client(tenant) -> Client:
 
 
 def _transient(exc: Exception) -> bool:
-    """Обрив мережі чи 5xx/429 — варте повтору. 4xx (крива схема) — ні, повтор не допоможе."""
+    """A dropped connection or 5xx/429 is worth retrying. A 4xx (broken schema) is not."""
     if isinstance(exc, httpx.RequestError):
         return True
     if isinstance(exc, HTTPResponseError):
@@ -83,8 +117,8 @@ def _chunks(text: str) -> list:
 
 
 def find_by_link(tenant, link: str) -> str | None:
-    """URL уже збереженої сторінки з таким лінком, або None. Дублі — в межах
-    бази тенанта: те, що кент уже зберіг собі, мене не стосується."""
+    """The URL of an already-saved page with this link, or None. Duplicates are scoped to
+    the tenant's own base: what another owner saved for themselves is none of our business."""
     result = _retry(
         _client(tenant).request,
         path=f"databases/{tenant.notion_database_id}/query",
@@ -96,37 +130,38 @@ def find_by_link(tenant, link: str) -> str | None:
 
 
 def check_access(tenant) -> list:
-    """Список проблем людською мовою; порожній — тенант готовий приймати записи."""
+    """Problems in plain language; an empty list means the tenant is ready to take entries."""
     try:
         db = _retry(_client(tenant).databases.retrieve,
                     database_id=tenant.notion_database_id)
     except HTTPResponseError as exc:
         if exc.status == 401:
-            return ["Notion не приймає токен (401) — інтеграцію видалено "
-                    "або токен скопійовано не повністю"]
+            return ["Notion rejects the token (401) — the integration was deleted "
+                    "or the token was copied incompletely"]
         if exc.status in (403, 404):
-            return [f"інтеграція не бачить базу {tenant.notion_database_id} ({exc.status}) — "
-                    "відкрий базу → ⋯ → Connections → додай туди інтеграцію"]
+            return [f"the integration cannot see database {tenant.notion_database_id} "
+                    f"({exc.status}) — open the database → ⋯ → Connections → add the "
+                    "integration there"]
         raise
     problems = []
     props = db.get("properties") or {}
     for name, kind in REQUIRED_PROPERTIES.items():
         got = props.get(name)
         if got is None:
-            problems.append(f"немає колонки «{name}» ({kind})")
+            problems.append(f"missing column «{name}» ({kind})")
         elif got.get("type") != kind:
-            problems.append(f"колонка «{name}»: тип {got.get('type')}, а треба {kind}")
+            problems.append(f"column «{name}»: type is {got.get('type')}, should be {kind}")
     return problems
 
 
 def probe(tenant) -> str:
-    """Створює тестову сторінку і одразу архівує її — той самий шлях, яким
-    піде живий запис. Дешевша перевірка, ніж перший реальний пост о 2 ночі."""
+    """Creates a test page and archives it right away — the same path a live entry takes.
+    A cheaper check than finding out on the first real post at 2am."""
     client = _client(tenant)
     page = _retry(
         client.pages.create,
         parent={"database_id": tenant.notion_database_id},
-        properties={"Name": {"title": [{"text": {"content": "✅ Перевірка доступу"}}]}},
+        properties={"Name": {"title": [{"text": {"content": _HEADINGS["probe"]}}]}},
     )
     _retry(client.pages.update, page_id=page["id"], archived=True)
     return page["url"]
@@ -141,8 +176,8 @@ def _build_properties(analysis: dict, link: str | None, creator: str, source: st
         "Tags": {"multi_select": [{"name": t} for t in analysis["tags"]]},
         "Why useful": {"rich_text": [{"text": {"content": analysis["why_useful"][:_BLOCK_CHAR_LIMIT]}}]},
     }
-    # друга шкала й кут — окремими колонками: саме за ними будується вью «що знімати»,
-    # а з тіла сторінки їх не відфільтруєш
+    # the second scale and the angle get columns of their own: the "what to film" view is
+    # built on them, and you cannot filter on the page body
     if analysis.get("content_potential"):
         props["Content Potential"] = {"select": {"name": analysis["content_potential"]}}
     for column, key in (("Content Angle", "angle"), ("Hook", "hook")):
@@ -151,7 +186,7 @@ def _build_properties(analysis: dict, link: str | None, creator: str, source: st
     if analysis.get("recommended_format"):
         props["Recommended Format"] = {"select": {"name": analysis["recommended_format"]}}
     if transcript:
-        # шукабельна копія: databases/query з filter rich_text.contains бачить її цілком
+        # a searchable copy: databases/query with a rich_text.contains filter sees all of it
         props["Transcript"] = {"rich_text": [{"text": {"content": c}} for c in _chunks(transcript)]}
     if link:
         props["Link"] = {"url": link}
@@ -187,35 +222,37 @@ def _build_blocks(analysis: dict, transcript: str) -> list:
         "callout": {"rich_text": _rt(analysis["tldr"][:_BLOCK_CHAR_LIMIT]), "icon": {"emoji": "💬"}},
     }]
     if analysis["summary"]:
-        blocks += [_heading("📝 Summary"), _paragraph(analysis["summary"][:_BLOCK_CHAR_LIMIT])]
+        blocks += [_heading(_HEADINGS["summary"]),
+                   _paragraph(analysis["summary"][:_BLOCK_CHAR_LIMIT])]
     if analysis.get("source_idea"):
-        blocks += [_heading("🎯 Ідея оригіналу"),
+        blocks += [_heading(_HEADINGS["source_idea"]),
                    _paragraph(analysis["source_idea"][:_BLOCK_CHAR_LIMIT])]
     if analysis["key_ideas"]:
-        blocks.append(_heading("💡 Ключові думки"))
+        blocks.append(_heading(_HEADINGS["key_ideas"]))
         blocks += [_bullet(i) for i in analysis["key_ideas"]]
     if analysis["practical"]:
-        blocks.append(_heading("🛠 Практично"))
+        blocks.append(_heading(_HEADINGS["practical"]))
         blocks += [_bullet(i) for i in analysis["practical"]]
     if analysis.get("learning_takeaway"):
-        blocks += [_heading("🧠 Що перевірити або застосувати"),
+        blocks += [_heading(_HEADINGS["learning_takeaway"]),
                    _paragraph(analysis["learning_takeaway"][:_BLOCK_CHAR_LIMIT])]
     if analysis.get("hook"):
-        blocks += [_heading("🪝 Хук"), _paragraph(analysis["hook"][:_BLOCK_CHAR_LIMIT])]
+        blocks += [_heading(_HEADINGS["hook"]), _paragraph(analysis["hook"][:_BLOCK_CHAR_LIMIT])]
     if analysis.get("angle"):
-        blocks += [_heading("🎬 Кут для Reels"), _paragraph(analysis["angle"][:_BLOCK_CHAR_LIMIT])]
+        blocks += [_heading(_HEADINGS["angle"]),
+                   _paragraph(analysis["angle"][:_BLOCK_CHAR_LIMIT])]
     if analysis.get("adaptation"):
-        blocks.append(_heading("♻️ Як перепакувати"))
+        blocks.append(_heading(_HEADINGS["adaptation"]))
         blocks += [_bullet(i) for i in analysis["adaptation"]]
     if analysis.get("own_proof"):
-        blocks += [_heading("🧾 Власний доказ"),
+        blocks += [_heading(_HEADINGS["own_proof"]),
                    _paragraph(analysis["own_proof"][:_BLOCK_CHAR_LIMIT])]
     if transcript:
         blocks.append({
             "object": "block",
             "type": "toggle",
             "toggle": {
-                "rich_text": _rt("📄 Транскрипт"),
+                "rich_text": _rt(_HEADINGS["transcript"]),
                 "children": [_paragraph(c) for c in _chunks(transcript)],
             },
         })

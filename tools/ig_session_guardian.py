@@ -120,7 +120,7 @@ def run(refresh_only: bool = False, rotate_proxy: bool = False) -> int:
     cookie_file = Path(os.getenv("IG_COOKIES_FILE", str(APP_DIR / "cookies.txt")))
     if not cookie_file.is_absolute():
         cookie_file = APP_DIR / cookie_file
-    # читається після load_dotenv — інакше IG_BROWSER_PROFILE із .env ніколи не діяв
+    # read after load_dotenv — otherwise IG_BROWSER_PROFILE from .env never took effect
     profile_dir = Path(os.getenv(
         "IG_BROWSER_PROFILE", Path.home() / ".cache" / "content-kb" / "ig-browser-profile"))
     profile_dir.mkdir(parents=True, exist_ok=True)
