@@ -1,14 +1,16 @@
 # Setup
 
 ## What it does today
-`content_kb/bot.py` accepts IG links, TikTok links, forwarded posts, images and voice notes
+`content_kb/bot.py` accepts IG links, TikTok links, Threads links, forwarded posts, images and voice notes
 → analysis via Codex → an entry in Notion.
 One process serves several database owners: whoever wrote is the base it writes to.
 
 Accepted input:
 - Instagram: posts, reels, stories, profiles
 - TikTok: videos
-- Telegram: forwarded messages, images, voice notes, text
+- YouTube: Shorts, videos
+- Threads: text posts, videos, photo carousels
+- Telegram: public channel links, forwarded messages, images, voice notes, text
 - Silent video: the frames are read as images
 - Carousel posts and multi-image messages: every slide → OCR → one entry
 

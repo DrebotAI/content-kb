@@ -10,8 +10,9 @@ content-kb solves the problem of capturing fleeting content (Instagram reels, Ti
 
 Accepts these input types from Telegram:
 
-- **IG/TikTok links** — downloads and transcribes audio (or extracts frames from silent videos for OCR), then analyzes
+- **IG/TikTok/Threads/YouTube links** — downloads and transcribes audio (or extracts frames from silent videos for OCR, reads text/carousels), then analyzes
 - **Instagram stories** — downloads all stories from a user, transcribes/OCRs each, compiles into one entry
+- **Public Telegram channel links** — reads post text, images, and video
 - **Photos & carousels** — OCRs the images and any caption
 - **Voice notes, audio, video notes** — transcribes to text
 - **Text messages** — batches them into one entry if sent together
@@ -209,7 +210,9 @@ Full setup guide, including the Instagram session details: [SETUP.md](SETUP.md)
 | `content_kb/bot.py` | Main Telegram bot loop; message handlers for links, photos, voice, text; batch debouncing; `/id` and `/voice` commands |
 | `content_kb/notion_store.py` | Notion API client; saves pages with properties & blocks; checks schema; retries on transient errors |
 | `content_kb/ai_engine.py` | Codex CLI subprocess wrapper; AI analysis (JSON parsing, value/potential scoring); image OCR; message digest compilation; profile fallback |
-| `content_kb/instagram.py` | yt-dlp downloader wrapper; handles IG reels/stories/posts and TikTok; audio extraction; silent video frame extraction; story batch download |
+| `content_kb/instagram.py` | yt-dlp downloader wrapper; handles IG reels/stories/posts, TikTok, and YouTube (Shorts & videos); audio extraction; silent video frame extraction; story batch download |
+| `content_kb/telegram_channel.py` | Public Telegram channel post extractor; reads text, images, and video from embed pages |
+| `content_kb/threads.py` | Threads downloader and extractor; handles text posts, videos, images/carousels, quotes; audio extraction via ffmpeg |
 | `content_kb/transcribe.py` | Deepgram API client; speech-to-text with keyterm boosting (Claude Code, product names, etc.) |
 | `content_kb/tenants.py` | Multi-tenant config parser; loads `tenants.json` or `.env` fallback; validates & caches tenant registry |
 | `content_kb/delivery.py` | Telegram message sending utility; splits large text (>3500 chars) into files |

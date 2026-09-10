@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "content-kb"
 version = "0.1.0"
-description = "Telegram bot that turns saved Instagram, TikTok and voice content into AI-evaluated Notion knowledge-base entries"
+description = "Telegram bot that turns saved social and voice content into AI-evaluated Notion knowledge-base entries"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"

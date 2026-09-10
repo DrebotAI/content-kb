@@ -47,9 +47,9 @@ def _instagram_proxy() -> str | None:
 
 
 def _apply_ydl_proxy(opts: dict, url: str | None = None) -> dict:
-    # IG proxy/Android UA are Instagram-specific. Reusing them for TikTok makes
-    # otherwise public videos fail TikTok's webpage/API rehydration.
-    if url and _is_tiktok(url):
+    # IG proxy/Android UA are Instagram-specific. Reusing them for TikTok or YouTube makes
+    # otherwise public videos fail webpage/API rehydration.
+    if url and (_is_tiktok(url) or _is_youtube(url)):
         return opts
     proxy = _instagram_proxy()
     if proxy:
@@ -63,16 +63,16 @@ def _apply_ydl_proxy(opts: dict, url: str | None = None) -> dict:
 
 
 def download_audio(url: str) -> tuple[list, dict]:
-    """Downloads audio from Instagram. Returns (list of mp3s, meta: creator/source).
+    """Downloads audio from Instagram, TikTok, or YouTube. Returns (list of mp3s, meta: creator/source).
 
-    For a single reel/post that is a one-element list; for stories, all of that user's stories.
+    For a single reel/post/video that is a one-element list; for stories, all of that user's stories.
     """
     # Stories are not served at all without cookies, while for reels stale cookies break
     # the request (Instagram answers 400, even though the same reel downloads anonymously).
     # So try both paths, starting with whichever is likelier for this kind of link.
     prefer_cookies = "/stories/" in url
-    # TikTok is served anonymously, and IG cookies mean nothing to it anyway
-    attempts = (False,) if _is_tiktok(url) else (prefer_cookies, not prefer_cookies)
+    # TikTok and YouTube are served anonymously, and IG cookies mean nothing to them
+    attempts = (False,) if (_is_tiktok(url) or _is_youtube(url)) else (prefer_cookies, not prefer_cookies)
     errors, silent = [], None
     for use_cookies in attempts:
         try:
@@ -341,8 +341,14 @@ def _is_tiktok(url: str) -> bool:
     return "tiktok.com" in url
 
 
+def _is_youtube(url: str) -> bool:
+    return any(d in url for d in ("youtube.com", "youtu.be"))
+
+
 def source_from_url(url: str) -> str:
     # ponytail: the module stays instagram.py — either way the download is the same yt-dlp
+    if _is_youtube(url):
+        return "YouTube Shorts" if "/shorts/" in url else "YouTube"
     if _is_tiktok(url):
         return "TikTok"
     if "/reel" in url:
@@ -363,11 +369,15 @@ def _meta(url: str, info: dict) -> dict:
         return {"creator": f"@{from_url.group(1)}", "source": source_from_url(url)}
     first = _entries(info)[0] if info.get("entries") else info
     # IG: channel is the handle, uploader_id is numeric, uploader is the display name.
-    # TikTok is the other way round: the handle is in uploader, and channel is the human name.
-    keys = ("uploader", "channel") if _is_tiktok(url) else ("channel", "uploader_id", "uploader")
+    # TikTok: handle is in uploader, and channel is the human name.
+    # YouTube: uploader_id is @handle, uploader/channel is the display name.
+    keys = ("uploader", "channel") if _is_tiktok(url) else \
+           ("uploader_id", "uploader", "channel") if _is_youtube(url) else \
+           ("channel", "uploader_id", "uploader")
     for src in (info, first):
         for key in keys:
             name = str(src.get(key) or "").strip()
             if name and not name.isdigit():
-                return {"creator": f"@{name}"[:100], "source": source_from_url(url)}
+                handle = name if name.startswith("@") else f"@{name}"
+                return {"creator": handle[:100], "source": source_from_url(url)}
     return {"creator": "", "source": source_from_url(url)}

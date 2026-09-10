@@ -258,3 +258,30 @@ def test_tiktok_source_and_creator():
     meta = _meta("https://www.tiktok.com/@nick/video/123",
                  {"channel": "Nick Display", "uploader": "nick"})
     assert meta == {"creator": "@nick", "source": "TikTok"}
+
+
+def test_youtube_source_and_creator():
+    assert source_from_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ") == "YouTube"
+    assert source_from_url("https://youtu.be/dQw4w9WgXcQ") == "YouTube"
+    assert source_from_url("https://www.youtube.com/shorts/dQw4w9WgXcQ") == "YouTube Shorts"
+
+    # on YouTube the handle is in uploader_id with @
+    meta = _meta("https://www.youtube.com/watch?v=123",
+                 {"uploader_id": "@creator_handle", "uploader": "Creator Name", "channel": "Creator Name"})
+    assert meta == {"creator": "@creator_handle", "source": "YouTube"}
+
+    # when handle is without @
+    meta_no_at = _meta("https://www.youtube.com/shorts/123",
+                       {"uploader_id": "creator_handle", "channel": "Creator Name"})
+    assert meta_no_at == {"creator": "@creator_handle", "source": "YouTube Shorts"}
+
+
+def test_youtube_bypasses_instagram_proxy_and_user_agent(monkeypatch):
+    monkeypatch.setenv("IG_PROXY_URL", "http://user:pass@proxy.example:1000")
+    monkeypatch.setenv("IG_USER_AGENT", "Instagram Android Test UA")
+    for url in (
+        "https://www.youtube.com/watch?v=123",
+        "https://youtu.be/123",
+        "https://www.youtube.com/shorts/123",
+    ):
+        assert _apply_ydl_proxy({"quiet": True}, url) == {"quiet": True}

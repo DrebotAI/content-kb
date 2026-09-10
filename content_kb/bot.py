@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import tempfile
 
 from dotenv import load_dotenv
@@ -11,9 +12,23 @@ load_dotenv()
 
 from telegram import Update
 from telegram.error import NetworkError
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
-from . import ai_engine, instagram, notion_store, tenants, transcribe
+from . import (
+    ai_engine,
+    instagram,
+    notion_store,
+    telegram_channel,
+    tenants,
+    threads,
+    transcribe,
+)
 from .delivery import send_text_or_file
 
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +40,7 @@ VOICE_MODE_IDLE_SECONDS = 60
 # how long to wait for the next message before stitching a batch into one entry
 BATCH_DEBOUNCE_SECONDS = int(os.getenv("BATCH_DEBOUNCE_SECONDS", "25"))
 LINK_URL_RE = re.compile(
-    r"https?://(?:[\w-]+\.)?(?:instagram\.com|tiktok\.com)/\S+")
+    r"https?://(?:[\w-]+\.)?(?:instagram\.com|tiktok\.com|threads\.(?:net|com)|youtube\.com|youtu\.be|t\.me|telegram\.me)/\S+")
 
 # chat ids with /voice enabled. This used to be a global flag — with two database
 # owners that would mean one of them turning transcription mode on for the other too.
@@ -262,10 +277,21 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 def links_from(text: str) -> list:
-    """Every IG/TikTok link in the message, deduplicated and without trailing punctuation."""
+    """Every supported link in the message, deduplicated and without trailing punctuation."""
     seen = []
     for raw in LINK_URL_RE.findall(text):
-        url = instagram.profile_to_stories(raw.rstrip(".,);:»\"'"))
+        cleaned = raw.rstrip(".,);:»\"'")
+        if threads.is_threads(cleaned):
+            url = threads.clean_url(cleaned)
+        elif "instagram.com" in cleaned:
+            url = instagram.profile_to_stories(cleaned)
+        elif telegram_channel.is_telegram_channel(cleaned):
+            url = telegram_channel.clean_url(cleaned)
+        elif "t.me/" in cleaned or "telegram.me/" in cleaned:
+            # Telegram share/login/private-chat URLs are not public channel posts.
+            continue
+        else:
+            url = cleaned
         if url not in seen:
             seen.append(url)
     return seen
@@ -317,6 +343,120 @@ async def _process_stories(context, chat_id: int, tenant, url: str, tag: str = "
                           creator=meta["creator"], source=meta["source"], transcript=transcript)
 
 
+async def _process_threads(context, chat_id: int, tenant, url: str, tag: str = "") -> None:
+    try:
+        post = await asyncio.to_thread(threads.download_post, url)
+    except Exception as e:
+        logger.exception("Threads post download failed")
+        error = " ".join(str(e).split())[:400] or type(e).__name__
+        await context.bot.send_message(chat_id, f"{tag}❌ Could not download the Threads post: {error}")
+        return
+
+    try:
+        if post.audio_path:
+            await context.bot.send_message(chat_id, f"{tag}🎙 Transcribing audio…")
+            try:
+                speech = await asyncio.to_thread(transcribe.transcribe_file, post.audio_path)
+            except Exception as e:
+                logger.exception("Threads audio transcription failed")
+                if post.text:
+                    await _rescue(context, chat_id, f"{tag}❌ Could not transcribe audio: {e}", post.text)
+                else:
+                    await context.bot.send_message(chat_id, f"{tag}❌ Could not transcribe audio: {e}")
+                return
+            transcript = f"{post.text}\n\n---\n\n{speech}" if post.text else speech
+            content = transcript
+        elif post.silent_videos:
+            paths = await asyncio.to_thread(instagram.frames, post.silent_videos)
+            await context.bot.send_message(chat_id, f"{tag}🔇 Video with no sound — reading {len(paths)} frame(s)…")
+            try:
+                content = await asyncio.to_thread(ai_engine.read_image, paths, post.text)
+            except Exception as e:
+                logger.exception("Threads silent video frame read failed")
+                await _rescue(context, chat_id, f"{tag}❌ Codex could not read the video frames: {e}", post.text)
+                return
+            transcript = content
+        elif post.image_paths:
+            await context.bot.send_message(
+                chat_id, f"{tag}📸 Reading {len(post.image_paths)} image(s) and the text…")
+            try:
+                content = await asyncio.to_thread(ai_engine.read_image, post.image_paths, post.text)
+            except Exception as e:
+                logger.exception("Threads image read failed")
+                await _rescue(context, chat_id, f"{tag}❌ Codex could not read the images: {e}", post.text)
+                return
+            transcript = content
+        elif post.text:
+            content = post.text
+            transcript = post.text
+        else:
+            await context.bot.send_message(chat_id, f"{tag}❌ Post is empty — nothing to write")
+            return
+
+        await _save_and_reply(context, chat_id, tenant, content=content, link=url,
+                              creator=post.creator, source=post.source, transcript=transcript)
+    finally:
+        if post.tmp_dir and os.path.exists(post.tmp_dir):
+            shutil.rmtree(post.tmp_dir, ignore_errors=True)
+
+
+async def _process_telegram_channel(context, chat_id: int, tenant, url: str, tag: str = "") -> None:
+    try:
+        post = await asyncio.to_thread(telegram_channel.download_post, url)
+    except Exception as e:
+        logger.exception("Telegram post download failed")
+        error = " ".join(str(e).split())[:400] or type(e).__name__
+        await context.bot.send_message(chat_id, f"{tag}❌ Could not download the Telegram post: {error}")
+        return
+
+    try:
+        if post.audio_path:
+            await context.bot.send_message(chat_id, f"{tag}🎙 Transcribing audio…")
+            try:
+                speech = await asyncio.to_thread(transcribe.transcribe_file, post.audio_path)
+            except Exception as e:
+                logger.exception("Telegram audio transcription failed")
+                if post.text:
+                    await _rescue(context, chat_id, f"{tag}❌ Could not transcribe audio: {e}", post.text)
+                else:
+                    await context.bot.send_message(chat_id, f"{tag}❌ Could not transcribe audio: {e}")
+                return
+            transcript = f"{post.text}\n\n---\n\n{speech}" if post.text else speech
+            content = transcript
+        elif post.silent_videos:
+            paths = await asyncio.to_thread(instagram.frames, post.silent_videos)
+            await context.bot.send_message(chat_id, f"{tag}🔇 Video with no sound — reading {len(paths)} frame(s)…")
+            try:
+                content = await asyncio.to_thread(ai_engine.read_image, paths, post.text)
+            except Exception as e:
+                logger.exception("Telegram silent video frame read failed")
+                await _rescue(context, chat_id, f"{tag}❌ Codex could not read the video frames: {e}", post.text)
+                return
+            transcript = content
+        elif post.image_paths:
+            await context.bot.send_message(
+                chat_id, f"{tag}📸 Reading {len(post.image_paths)} image(s) and the text…")
+            try:
+                content = await asyncio.to_thread(ai_engine.read_image, post.image_paths, post.text)
+            except Exception as e:
+                logger.exception("Telegram image read failed")
+                await _rescue(context, chat_id, f"{tag}❌ Codex could not read the images: {e}", post.text)
+                return
+            transcript = content
+        elif post.text:
+            content = post.text
+            transcript = post.text
+        else:
+            await context.bot.send_message(chat_id, f"{tag}❌ Post is empty — nothing to write")
+            return
+
+        await _save_and_reply(context, chat_id, tenant, content=content, link=url,
+                              creator=post.creator, source=post.source, transcript=transcript)
+    finally:
+        if post.tmp_dir and os.path.exists(post.tmp_dir):
+            shutil.rmtree(post.tmp_dir, ignore_errors=True)
+
+
 async def _process_link(context, chat_id: int, tenant, url: str, tag: str = "") -> None:
     try:  # check BEFORE downloading: otherwise we pay Deepgram for what is already stored
         existing = await asyncio.to_thread(notion_store.find_by_link, tenant, url)
@@ -327,6 +467,12 @@ async def _process_link(context, chat_id: int, tenant, url: str, tag: str = "") 
         await context.bot.send_message(chat_id, f"{tag}♻️ Already in the base:\n{existing}")
         return
     await context.bot.send_message(chat_id, f"{tag}⏳ Downloading…")
+    if threads.is_threads(url):
+        await _process_threads(context, chat_id, tenant, url, tag)
+        return
+    if telegram_channel.is_telegram_channel(url):
+        await _process_telegram_channel(context, chat_id, tenant, url, tag)
+        return
     if "/stories/" in url:
         await _process_stories(context, chat_id, tenant, url, tag)
         return
@@ -337,12 +483,13 @@ async def _process_link(context, chat_id: int, tenant, url: str, tag: str = "") 
         await _process_image_post(context, chat_id, tenant, url, tag, silent=silent)
         return
     except Exception as e:
-        if instagram.source_from_url(url) == "TikTok":
-            # TikTok video extraction failures are not evidence of an image post.
+        source = instagram.source_from_url(url)
+        if source in ("TikTok", "YouTube", "YouTube Shorts"):
+            # Video extraction failures are not evidence of an image post.
             # Do not hide the real downloader error behind a misleading thumbnail error.
-            logger.warning("TikTok video download failed: %s", e)
+            logger.warning("%s video download failed: %s", source, e)
             error = " ".join(str(e).split())[:400] or type(e).__name__
-            await context.bot.send_message(chat_id, f"{tag}❌ Could not download the TikTok video: {error}")
+            await context.bot.send_message(chat_id, f"{tag}❌ Could not download the {source} video: {error}")
             return
         # an Instagram post with no video is not an error — it is an image or a carousel
         logger.warning("no audio (%s) — trying it as an image post", e)
@@ -420,6 +567,14 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def main() -> None:
+    if not shutil.which("ffmpeg"):
+        sys.exit("❌ ffmpeg is missing. Please install it (e.g. brew install ffmpeg).")
+    if not shutil.which("codex"):
+        sys.exit(
+            "❌ codex CLI is missing. Install it from "
+            "https://developers.openai.com/codex/cli."
+        )
+
     # read the config before polling starts: better to fail here with a legible message
     # than to silently ignore messages from a live database owner
     registry = tenants.load()

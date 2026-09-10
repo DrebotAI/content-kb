@@ -90,8 +90,30 @@ def main() -> None:
     print(f"Tenants in the config: {len(registry)}")
     ok = [_check(t, probe) for t in chosen]
     ok.append(_check_instagram())
+    ok.append(_check_binaries())
     print()
     sys.exit(0 if all(ok) else 1)
+
+
+def _check_binaries() -> bool:
+    import shutil
+    print("\n[dependencies]")
+    ok = True
+    if not shutil.which("ffmpeg"):
+        print("  ❌ ffmpeg is missing — audio extraction will fail")
+        print("     To fix: brew install ffmpeg (Mac) or apt install ffmpeg (Linux)")
+        ok = False
+    else:
+        print("  ✅ ffmpeg is installed")
+
+    if not shutil.which("codex"):
+        print("  ❌ codex is missing — AI processing will fail")
+        print("     Install: https://developers.openai.com/codex/cli")
+        ok = False
+    else:
+        print("  ✅ codex is installed")
+
+    return ok
 
 
 if __name__ == "__main__":

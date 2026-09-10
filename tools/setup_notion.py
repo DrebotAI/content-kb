@@ -19,6 +19,7 @@ load_dotenv()
 from notion_client import Client
 
 from content_kb import tenants
+
 # labels and tags live in ai_engine — the same source of truth that builds the model's
 # prompt; duplicating the strings here would mean KB_LANGUAGE/KB_TAGS drifting away from
 # the database schema one day, and a select column silently refusing values
@@ -28,7 +29,10 @@ SCHEMA = {
     "Name": {"title": {}},
     "Creator": {"select": {}},
     "Source": {"select": {"options": [
-        {"name": n} for n in ("IG Reel", "IG Story", "IG Post", "TikTok", "Telegram", "Voice")
+        {"name": n} for n in (
+            "IG Reel", "IG Story", "IG Post", "TikTok", "Telegram", "Voice",
+            "Threads", "YouTube", "YouTube Shorts",
+        )
     ]}},
     "Link": {"url": {}},
     "Tags": {"multi_select": {"options": [{"name": n} for n in TAGS]}},

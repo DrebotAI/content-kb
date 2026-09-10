@@ -13,9 +13,15 @@ KENT = Tenant("kent", 42, "ntn_kent", "11111111-1111-1111-1111-111111111111",
 OWNER = Tenant("owner", 7, "ntn_owner", "22222222-2222-2222-2222-222222222222")
 tenants._cache = {t.telegram_id: t for t in (KENT, OWNER)}
 
-from content_kb import bot
-from content_kb.bot import (_process_stories, _queue_item, _tenant, batch_meta,
-                            creator_from_forward, links_from)
+from content_kb import bot, threads
+from content_kb.bot import (
+    _process_stories,
+    _queue_item,
+    _tenant,
+    batch_meta,
+    creator_from_forward,
+    links_from,
+)
 
 
 def _item(text, creator="", is_voice=False):
@@ -307,3 +313,245 @@ def test_tiktok_extractor_error_is_not_masked_as_image_post(monkeypatch):
 
     assert image_fallbacks == []
     assert messages[-1] == "❌ Could not download the TikTok video: TikTok extractor unavailable"
+
+
+def test_links_from_picks_threads_and_cleans():
+    text = (
+        "Check this: https://www.threads.com/@author/post/DdG22JTkkGr?xmt=AQG034&slof=1 "
+        "and https://threads.net/t/short123?tracking=yes."
+    )
+    assert links_from(text) == [
+        "https://www.threads.net/@author/post/DdG22JTkkGr",
+        "https://www.threads.net/t/short123",
+    ]
+
+
+def test_threads_text_post_pipeline(monkeypatch):
+    monkeypatch.setattr(bot.notion_store, "find_by_link", lambda tenant, url: None)
+
+    fake_post = threads.ThreadsPost(
+        creator="@writer",
+        text="A sharp post about agency positioning",
+        source="Threads",
+        url="https://www.threads.net/@writer/post/Post123",
+    )
+    monkeypatch.setattr(bot.threads, "download_post", lambda url: fake_post)
+
+    analyzed = []
+    saved = []
+
+    monkeypatch.setattr(
+        bot.ai_engine, "analyze",
+        lambda content, link, profile: analyzed.append((content, link)) or {
+            "title": "Agency positioning",
+            "tldr": "Niche down to scale",
+        }
+    )
+    monkeypatch.setattr(
+        bot.notion_store, "save_entry",
+        lambda tenant, analysis, link, creator, source, transcript:
+            saved.append((creator, source, transcript)) or "https://notion.so/page123"
+    )
+
+    messages = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text):
+            messages.append(text)
+
+    asyncio.run(bot._process_link(
+        SimpleNamespace(bot=_Bot()), 5, KENT,
+        "https://www.threads.net/@writer/post/Post123"
+    ))
+
+    assert len(analyzed) == 1
+    assert analyzed[0][0] == "A sharp post about agency positioning"
+    assert len(saved) == 1
+    assert saved[0] == ("@writer", "Threads", "A sharp post about agency positioning")
+    assert "https://notion.so/page123" in messages[-1]
+
+
+def test_threads_video_post_pipeline(monkeypatch, tmp_path):
+    monkeypatch.setattr(bot.notion_store, "find_by_link", lambda tenant, url: None)
+
+    audio_file = tmp_path / "audio.mp3"
+    audio_file.write_bytes(b"FAKE_AUDIO")
+
+    fake_post = threads.ThreadsPost(
+        creator="@speaker",
+        text="Video hook caption",
+        audio_path=str(audio_file),
+        source="Threads",
+        url="https://www.threads.net/@speaker/post/Vid123",
+    )
+    monkeypatch.setattr(bot.threads, "download_post", lambda url: fake_post)
+    monkeypatch.setattr(bot.transcribe, "transcribe_file", lambda path: "Audio speech transcription")
+
+    saved = []
+    monkeypatch.setattr(
+        bot.ai_engine, "analyze",
+        lambda content, link, profile: {
+            "title": "Video title",
+            "tldr": "Video summary",
+        }
+    )
+    monkeypatch.setattr(
+        bot.notion_store, "save_entry",
+        lambda tenant, analysis, link, creator, source, transcript:
+            saved.append((creator, source, transcript)) or "https://notion.so/vidpage"
+    )
+
+    messages = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text):
+            messages.append(text)
+
+    asyncio.run(bot._process_link(
+        SimpleNamespace(bot=_Bot()), 5, KENT,
+        "https://www.threads.net/@speaker/post/Vid123"
+    ))
+
+    assert len(saved) == 1
+    creator, source, transcript = saved[0]
+    assert creator == "@speaker"
+    assert source == "Threads"
+    assert transcript == "Video hook caption\n\n---\n\nAudio speech transcription"
+    assert "https://notion.so/vidpage" in messages[-1]
+
+
+def test_threads_download_failure(monkeypatch):
+    monkeypatch.setattr(bot.notion_store, "find_by_link", lambda tenant, url: None)
+
+    def fail_download(url):
+        raise RuntimeError("Post does not exist")
+
+    monkeypatch.setattr(bot.threads, "download_post", fail_download)
+
+    messages = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text):
+            messages.append(text)
+
+    asyncio.run(bot._process_link(
+        SimpleNamespace(bot=_Bot()), 5, KENT,
+        "https://www.threads.net/@user/post/BadCode"
+    ))
+
+    assert any("❌ Could not download the Threads post: Post does not exist" in m for m in messages)
+
+
+def test_links_from_picks_youtube():
+    text = (
+        "Watch https://www.youtube.com/watch?v=123 and https://youtu.be/456 "
+        "and https://www.youtube.com/shorts/789."
+    )
+    assert links_from(text) == [
+        "https://www.youtube.com/watch?v=123",
+        "https://youtu.be/456",
+        "https://www.youtube.com/shorts/789",
+    ]
+
+
+def test_links_from_picks_public_telegram_posts_only():
+    text = (
+        "Read https://t.me/example_channel/123?single and "
+        "ignore https://t.me/share/url?url=https://example.com and https://t.me/c/42/7."
+    )
+    assert links_from(text) == ["https://t.me/example_channel/123"]
+
+
+def test_telegram_channel_text_post_pipeline(monkeypatch):
+    monkeypatch.setattr(bot.notion_store, "find_by_link", lambda tenant, url: None)
+    monkeypatch.setattr(
+        bot.telegram_channel,
+        "download_post",
+        lambda url: bot.telegram_channel.TelegramPost(
+            creator="Example Channel",
+            text="A public channel post",
+            url=url,
+        ),
+    )
+    monkeypatch.setattr(
+        bot.ai_engine,
+        "analyze",
+        lambda content, link, profile: {"title": "Channel post", "tldr": "Summary"},
+    )
+
+    saved = []
+    monkeypatch.setattr(
+        bot.notion_store,
+        "save_entry",
+        lambda tenant, analysis, link, creator, source, transcript:
+            saved.append((creator, source, transcript)) or "https://notion.so/tgpage",
+    )
+    messages = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text):
+            messages.append(text)
+
+    asyncio.run(
+        bot._process_link(
+            SimpleNamespace(bot=_Bot()), 5, KENT, "https://t.me/example_channel/123"
+        )
+    )
+
+    assert saved == [("Example Channel", "Telegram", "A public channel post")]
+    assert "https://notion.so/tgpage" in messages[-1]
+
+
+def test_youtube_video_pipeline(monkeypatch):
+    monkeypatch.setattr(bot.notion_store, "find_by_link", lambda tenant, url: None)
+    monkeypatch.setattr(bot.instagram, "download_audio",
+                        lambda url: (["/tmp/yt.mp3"], {"creator": "@techlead", "source": "YouTube Shorts"}))
+    monkeypatch.setattr(bot.transcribe, "transcribe_file", lambda path: "Great insights on engineering")
+
+    saved = []
+    monkeypatch.setattr(
+        bot.ai_engine, "analyze",
+        lambda content, link, profile: {"title": "Engineering lead", "tldr": "Key takeaways"}
+    )
+    monkeypatch.setattr(
+        bot.notion_store, "save_entry",
+        lambda tenant, analysis, link, creator, source, transcript:
+            saved.append((creator, source, transcript)) or "https://notion.so/ytpage"
+    )
+
+    messages = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text):
+            messages.append(text)
+
+    asyncio.run(bot._process_link(
+        SimpleNamespace(bot=_Bot()), 5, KENT,
+        "https://www.youtube.com/shorts/789"
+    ))
+
+    assert len(saved) == 1
+    assert saved[0] == ("@techlead", "YouTube Shorts", "Great insights on engineering")
+    assert "https://notion.so/ytpage" in messages[-1]
+
+
+def test_youtube_download_error_reported(monkeypatch):
+    monkeypatch.setattr(bot.notion_store, "find_by_link", lambda tenant, url: None)
+
+    def fail_download(url):
+        raise RuntimeError("Video is private")
+
+    monkeypatch.setattr(bot.instagram, "download_audio", fail_download)
+
+    messages = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text):
+            messages.append(text)
+
+    asyncio.run(bot._process_link(
+        SimpleNamespace(bot=_Bot()), 5, KENT,
+        "https://www.youtube.com/watch?v=private123"
+    ))
+
+    assert messages[-1] == "❌ Could not download the YouTube video: Video is private"
