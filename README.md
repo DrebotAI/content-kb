@@ -8,6 +8,8 @@ content-kb captures fleeting content from Instagram, TikTok, YouTube, Threads, p
 Telegram channels, and your own Telegram messages, then turns it into a queryable knowledge
 base. It handles the entire pipeline: download, extract, transcribe, analyze, and store.
 
+![Notion knowledge base populated by content-kb](assets/notion-knowledge-base.png)
+
 ## What it does
 
 Accepts these input types from Telegram:
