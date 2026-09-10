@@ -26,9 +26,13 @@ pip install -e .
 The code calls these CLI tools directly through `subprocess`. Make sure they are on `$PATH`:
 
 - **`ffmpeg`** — extracts frames from silent videos and the audio track
-- **`codex`** — post analysis and image OCR; installed separately and must be logged in
-  (`codex login`). It is **not** what transcribes audio — Deepgram is
-  (`content_kb/transcribe.py`)
+- **`codex`** — post analysis and image OCR; install it from the
+  [official Codex CLI guide](https://developers.openai.com/codex/cli), then run
+  `codex login`. It is **not** what transcribes audio — Deepgram is
+  (`content_kb/transcribe.py`). On macOS/Linux:
+  ```bash
+  curl -fsSL https://chatgpt.com/codex/install.sh | sh
+  ```
 
 yt-dlp is already in pyproject.toml (via pip); no separate install needed.
 
@@ -60,6 +64,10 @@ yt-dlp is already in pyproject.toml (via pip); no separate install needed.
 - `IG_COOKIES_FILE` — cookie file for stories (optional; not needed for anonymous posts)
 - `IG_USER_AGENT` — User-Agent for Instagram requests (optional)
 - `IG_PROXY_URL` — proxy for IG requests (optional)
+- `THREADS_USER_AGENT` — desktop User-Agent for Threads (optional; falls back to
+  `IG_USER_AGENT` and then a built-in desktop value)
+- `THREADS_PROXY_URL` — proxy for Threads page requests (optional; falls back to
+  `IG_PROXY_URL`)
 - `IG_BROWSER_PROFILE` — browser profile directory for ig_session_guardian
   (default `~/.cache/content-kb/ig-browser-profile`)
 - `GPROXY_API_KEY` — key for automatic proxy generation (optional)
@@ -151,7 +159,7 @@ python tools/doctor.py                       # every tenant
 python tools/doctor.py collaborator --probe  # also create a test page and archive it
 ```
 Catches exactly what every new owner trips over: the wrong token, the integration not added
-under Connections, missing columns, a dead Instagram session.
+under Connections, missing columns, a dead Instagram session, or missing `ffmpeg`/`codex`.
 
 ## 6. Codex CLI
 
@@ -175,13 +183,13 @@ The `tools/ig_session_guardian.py` service:
 - Can rotate proxies automatically through GProxy (if `GPROXY_API_KEY` is set)
 - Runs on a timer; it is not needed continuously
 
-It is optional — without it stories cannot be downloaded, but everything else
-(posts, reels, TikTok) works anonymously.
+It is optional — without it stories cannot be downloaded, but public posts, reels, TikTok,
+YouTube, Threads, and public Telegram channel posts work anonymously.
 
 ## 8. Bot modes
 
-- Forward an IG/TikTok link / post / image / voice note → an entry in your base plus a card
-  in reply
+- Send an Instagram, TikTok, YouTube, Threads, or public Telegram channel link — or forward
+  a post, image, or voice note — to create an entry in your base plus a result card in reply
 - `/voice`, then a batch of voice notes → transcripts only, nothing written to the base
   (turns off after 60 s of silence; the mode is per chat, not global)
 - Several texts in a row → one entry after `BATCH_DEBOUNCE_SECONDS` (default 25 s of
@@ -206,6 +214,10 @@ sudo systemctl enable --now content-kb
 
 If the unit is already installed on the server under the old name (`tg-sorter.service`)
 there is no need to rename it — just use `systemctl` with the old name.
+
+For upgrades, copy the complete tracked tree so newly added modules are not missed, then run
+`pip install -e .` and `pytest -q` on the server before restarting. Adding Threads and YouTube
+does not require a Notion migration: missing `Source` select values are created on first use.
 
 ## 10. Tests
 

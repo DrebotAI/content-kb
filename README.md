@@ -4,7 +4,9 @@
 
 A Telegram bot that turns saved content into structured knowledge base entries in Notion. Transcribes audio, OCRs images, analyzes with AI, and writes rich Notion pages.
 
-content-kb solves the problem of capturing fleeting content (Instagram reels, TikTok videos, forwarded messages, voice notes, images, links) and turning it into a queryable knowledge base. It handles the entire pipeline: download, extract, transcribe, analyze, and store.
+content-kb captures fleeting content from Instagram, TikTok, YouTube, Threads, public
+Telegram channels, and your own Telegram messages, then turns it into a queryable knowledge
+base. It handles the entire pipeline: download, extract, transcribe, analyze, and store.
 
 ## What it does
 
@@ -129,14 +131,14 @@ setting.
 - **Python** 3.12+ (production runs 3.12; tests are green up to 3.14)
 - **CLI binaries** — these are *not* installed by `pyproject.toml`, get them separately:
   - `ffmpeg` — extracts frames from silent videos and the audio track
-  - `codex` — the [OpenAI Codex CLI](https://github.com/openai/codex). It does the content
-    analysis and the image OCR, called as a subprocess (`codex exec`). Install it per its own
-    README, then run `codex login` once. It is *not* what transcribes audio — that is Deepgram.
-    To swap in a different model or tool, `content_kb/ai_engine.py` is the only file that shells
-    out to it.
-- **Installed for you** by `pip install -e .`: `yt-dlp` (downloads IG/TikTok media),
-  `playwright` (only for the optional Instagram session guardian), the Telegram, Deepgram
-  and Notion SDKs.
+  - `codex` — the [OpenAI Codex CLI](https://developers.openai.com/codex/cli). It does the
+    content analysis and image OCR, called as a subprocess (`codex exec`). Install it on
+    macOS/Linux with `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, then run
+    `codex login` once. It is *not* what transcribes audio — that is Deepgram. To swap in a
+    different model or tool, `content_kb/ai_engine.py` is the only file that shells out to it.
+- **Installed for you** by `pip install -e .`: `yt-dlp` (downloads Instagram, TikTok, and
+  YouTube media), `httpx` and `playwright` (public Threads/Telegram extraction and the
+  optional Instagram session guardian), plus the Telegram, Deepgram, and Notion SDKs.
 - **Environment variables** — full annotated list in [`.env.example`](.env.example). The ones
   you must set: `TELEGRAM_BOT_TOKEN`, `DEEPGRAM_API_KEY`, and either a `tenants.json` or
   `ALLOWED_USER_ID` + `NOTION_TOKEN` + `NOTION_DATABASE_ID`. Everything else has a working
@@ -196,7 +198,7 @@ git clone https://github.com/DrebotAI/content-kb.git && cd content-kb
    python tools/doctor.py owner --probe  # also create and archive a real test page
    ```
 
-7. **Start the bot**, then send it an Instagram link:
+7. **Start the bot**, then send it any supported link or message:
    ```bash
    python -m content_kb.bot
    ```
@@ -217,7 +219,7 @@ Full setup guide, including the Instagram session details: [SETUP.md](SETUP.md)
 | `content_kb/tenants.py` | Multi-tenant config parser; loads `tenants.json` or `.env` fallback; validates & caches tenant registry |
 | `content_kb/delivery.py` | Telegram message sending utility; splits large text (>3500 chars) into files |
 | `tools/setup_notion.py` | One-time database creator; builds schema and prints config block for new tenants |
-| `tools/doctor.py` | Pre-deployment health check; verifies Notion access, schema, Instagram cookies, token validity |
+| `tools/doctor.py` | Pre-deployment health check; verifies Notion access/schema, Instagram cookies, and required binaries |
 | `tools/ig_session_guardian.py` | Persistent Playwright browser; maintains Instagram session cookies; handles login challenges & proxy rotation |
 | `tests/test_*.py` | Unit tests — run with pytest, no network |
 
@@ -229,6 +231,15 @@ pytest
 ```
 
 They need no network access and no API keys.
+
+## Platform caveats
+
+- Only public Threads posts and public Telegram channel posts are supported. Private posts,
+  private Telegram channels, and `t.me/c/...` links cannot be fetched without user access.
+- Instagram, TikTok, YouTube, Threads, and Telegram can change their public page/media
+  formats. Keep `yt-dlp` current and expect the HTML-based extractors to need occasional
+  maintenance.
+- Instagram stories need a valid cookie file; ordinary public posts do not.
 
 ## Making it yours
 
@@ -255,6 +266,20 @@ sudo systemctl enable --now content-kb
 ```
 
 Adjust `User=` and `WorkingDirectory=` to match your host.
+
+For an existing installation, deploy the tracked files, refresh the editable install, test,
+and only then restart the service:
+
+```bash
+pip install -e .
+pytest -q
+sudo systemctl restart content-kb
+sudo systemctl --no-pager --full status content-kb
+```
+
+This update adds new `Source` values (`Threads`, `YouTube`, and `YouTube Shorts`) but does
+not require a database migration. Notion creates missing select options on the first write;
+`tools/setup_notion.py` includes them when creating a new database.
 
 `ig-session-guardian` is optional and its proxy rotation is written against [GProxy](https://gproxy.net)'s API — treat `tools/ig_session_guardian.py` as an example to adapt for your proxy provider, or skip it and export `cookies.txt` from your browser manually.
 
